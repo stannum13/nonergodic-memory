@@ -119,6 +119,116 @@ def generate_width_figure(paths: Iterable[str | Path], output: str | Path) -> Pa
     )
 
 
+def generate_depth_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
+    records = [r for r in _load_paths(paths) if r.get("record_type") == "intervention_depth"]
+    if not records:
+        raise ValueError("depth sweep requires intervention_depth records")
+    depths = sorted({int(r["depth"]) for r in records})
+    labels = {
+        int(r["depth"]): str(r["depth_label"]).replace("_", " ")
+        for r in records
+    }
+    fig, (recovery_axis, damage_axis, predictive_axis) = plt.subplots(
+        1, 3, figsize=(15.0, 4.0)
+    )
+    baseline = [
+        r for r in records
+        if r["control"] == "baseline" and r["target"] == "component"
+    ]
+    for metric, label, color in (
+        ("baseline_component_posterior_r2", "component posterior r2", "#4477AA"),
+        ("baseline_state_posterior_r2", "state posterior r2", "#EE6677"),
+    ):
+        for condition, style in (("trained", "-"), ("untrained", "--")):
+            means, errors = [], []
+            for depth in depths:
+                subset = [
+                    r for r in baseline
+                    if int(r["depth"]) == depth and r["training_condition"] == condition
+                ]
+                mean, sd = _mean_sd(subset, metric)
+                means.append(mean)
+                errors.append(sd)
+            recovery_axis.errorbar(
+                depths, means, yerr=errors, marker="o", linestyle=style, capsize=3,
+                color=color, label=f"{label}: {condition}",
+            )
+    recovery_axis.set(
+        title="Linear recovery by intervention depth",
+        xlabel="activation site",
+        ylabel="held-out $R^2$",
+        xticks=depths,
+        xticklabels=[labels[d] for d in depths],
+    )
+    recovery_axis.legend(frameon=False, fontsize=8)
+
+    for target, metric, color in (
+        ("component", "delta_component_accuracy", "#4477AA"),
+        ("state", "delta_conditional_state_accuracy", "#EE6677"),
+    ):
+        for control, style in (("learned", "-"), ("norm_matched_random", "--")):
+            means, errors = [], []
+            for depth in depths:
+                subset = [
+                    r for r in records
+                    if int(r["depth"]) == depth
+                    and r["training_condition"] == "trained"
+                    and r["target"] == target
+                    and r["control"] == control
+                ]
+                mean, sd = _mean_sd(subset, metric)
+                means.append(-mean)
+                errors.append(sd)
+            damage_axis.errorbar(
+                depths, means, yerr=errors, marker="o", linestyle=style, capsize=3,
+                color=color, label=f"{target}: {control.replace('_', ' ')}",
+            )
+    damage_axis.axhline(0, color="black", linewidth=0.7)
+    damage_axis.set(
+        title="Intended independent-probe damage",
+        xlabel="activation site",
+        ylabel="accuracy decrease",
+        xticks=depths,
+        xticklabels=[labels[d] for d in depths],
+    )
+    damage_axis.legend(frameon=False, fontsize=8)
+    for target, color in (("component", "#4477AA"), ("state", "#EE6677")):
+        for control, style in (("learned", "-"), ("norm_matched_random", "--")):
+            means, errors = [], []
+            for depth in depths:
+                subset = [
+                    r for r in records
+                    if int(r["depth"]) == depth
+                    and r["training_condition"] == "trained"
+                    and r["target"] == target
+                    and r["control"] == control
+                ]
+                mean, sd = _mean_sd(subset, "delta_kl_exact")
+                means.append(mean)
+                errors.append(sd)
+            predictive_axis.errorbar(
+                depths, means, yerr=errors, marker="o", linestyle=style, capsize=3,
+                color=color, label=f"{target}: {control.replace('_', ' ')}",
+            )
+    predictive_axis.axhline(0, color="black", linewidth=0.7)
+    predictive_axis.set(
+        title="Exact-predictive damage",
+        xlabel="activation site",
+        ylabel=r"$\Delta$ KL(exact || model)",
+        xticks=depths,
+        xticklabels=[labels[d] for d in depths],
+    )
+    predictive_axis.legend(frameon=False, fontsize=8)
+    seed_count = len({r["seed"] for r in records})
+    fig.suptitle(f"Transformer intervention-depth sweep; mean ± seed SD (n={seed_count})")
+    destination = Path(output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(destination, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return destination
+
+
 def generate_component_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
     records = _load_paths(paths)
     probes = [r for r in records if r.get("record_type") == "probe" and r.get("control") == "none"]
@@ -168,17 +278,15 @@ def generate_component_figure(paths: Iterable[str | Path], output: str | Path) -
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--axis", choices=["overlap", "length", "components", "width"], default="overlap")
+    parser.add_argument("--axis", choices=["overlap", "length", "components", "width", "depth"], default="overlap")
     args = parser.parse_args()
-    prefix = {"overlap": "sweep_overlap", "length": "sweep_length", "components": "sweep_components", "width": "sweep_width"}[args.axis]
-    generator = {"overlap": generate_overlap_figure, "length": generate_length_figure, "components": generate_component_figure, "width": generate_width_figure}[args.axis]
-    output = generator(
-        [
-            f"results/{prefix}_reproduction.jsonl",
-            f"results/{prefix}_extension.jsonl",
-        ],
-        f"figures/{prefix}.png",
-    )
+    prefix = {"overlap": "sweep_overlap", "length": "sweep_length", "components": "sweep_components", "width": "sweep_width", "depth": "sweep_depth"}[args.axis]
+    generator = {"overlap": generate_overlap_figure, "length": generate_length_figure, "components": generate_component_figure, "width": generate_width_figure, "depth": generate_depth_figure}[args.axis]
+    paths = [f"results/{prefix}.jsonl"] if args.axis == "depth" else [
+        f"results/{prefix}_reproduction.jsonl",
+        f"results/{prefix}_extension.jsonl",
+    ]
+    output = generator(paths, f"figures/{prefix}.png")
     print(f"generated {output}")
 
 

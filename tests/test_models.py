@@ -22,3 +22,14 @@ def test_transformer_is_causal() -> None:
     right, _ = model(torch.tensor([[0, 1, 0, 0]]))
     torch.testing.assert_close(left[:, :2], right[:, :2])
 
+
+def test_transformer_layerwise_continuations_reproduce_logits() -> None:
+    torch.manual_seed(5)
+    model = TransformerPredictor(4, width=8, layers=2, heads=2, max_length=8)
+    model.eval()
+    tokens = torch.tensor([[0, 1, 2, 3]])
+    expected, layer_activations = model.forward_with_layers(tokens)
+    assert len(layer_activations) == 3  # two block outputs plus final normalization
+    for depth, hidden in enumerate(layer_activations):
+        actual, _ = model.logits_from_depth(hidden, depth)
+        torch.testing.assert_close(actual, expected)

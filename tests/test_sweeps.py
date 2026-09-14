@@ -3,6 +3,7 @@ from pathlib import Path
 
 from nonergodic_memory.sweeps import (
     generate_component_figure,
+    generate_depth_figure,
     generate_length_figure,
     generate_overlap_figure,
     generate_width_figure,
@@ -144,4 +145,41 @@ def test_width_figure_uses_model_width_axis(tmp_path: Path) -> None:
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
     output = tmp_path / "width.png"
     generate_width_figure([path], output)
+    assert output.exists() and output.stat().st_size > 1000
+
+
+def test_depth_figure_compares_recovery_and_controls(tmp_path: Path) -> None:
+    records = []
+    for depth, label in enumerate(("block_1", "block_2", "final_norm")):
+        for seed in (0, 1):
+            for condition in ("trained", "untrained"):
+                for target in ("component", "state"):
+                    for control in ("baseline", "learned", "norm_matched_random"):
+                        records.append(
+                            {
+                                "record_type": "intervention_depth",
+                                "model": "transformer",
+                                "seed": seed,
+                                "depth": depth,
+                                "depth_label": label,
+                                "training_condition": condition,
+                                "target": target,
+                                "control": control,
+                                **(
+                                    {
+                                        "baseline_component_posterior_r2": 0.5 + 0.1 * depth,
+                                        "baseline_state_posterior_r2": 0.4 + 0.05 * depth,
+                                    }
+                                    if control == "baseline"
+                                    else {}
+                                ),
+                                "delta_component_accuracy": -0.2 if control == "learned" and target == "component" else -0.02,
+                                "delta_conditional_state_accuracy": -0.15 if control == "learned" and target == "state" else -0.01,
+                                "delta_kl_exact": 0.02 if control == "learned" else 0.001,
+                            }
+                        )
+    path = tmp_path / "depth.jsonl"
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    output = tmp_path / "depth.png"
+    generate_depth_figure([path], output)
     assert output.exists() and output.stat().st_size > 1000

@@ -45,15 +45,40 @@ class TransformerPredictor(nn.Module):
         self.norm = nn.LayerNorm(width)
         self.output = nn.Linear(width, vocab_size)
 
-    def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
-        positions = torch.arange(tokens.shape[1], device=tokens.device)
-        hidden = self.token_embedding(tokens) + self.position_embedding(positions)[None, :, :]
-        mask = torch.triu(
-            torch.ones(tokens.shape[1], tokens.shape[1], device=tokens.device, dtype=torch.bool),
+    @staticmethod
+    def _causal_mask(length: int, device: torch.device) -> Tensor:
+        return torch.triu(
+            torch.ones(length, length, device=device, dtype=torch.bool),
             diagonal=1,
         )
-        hidden = self.norm(self.blocks(hidden, mask=mask, is_causal=True))
+
+    def forward_with_layers(self, tokens: Tensor) -> tuple[Tensor, list[Tensor]]:
+        positions = torch.arange(tokens.shape[1], device=tokens.device)
+        hidden = self.token_embedding(tokens) + self.position_embedding(positions)[None, :, :]
+        mask = self._causal_mask(tokens.shape[1], tokens.device)
+        activations: list[Tensor] = []
+        for block in self.blocks.layers:
+            hidden = block(hidden, src_mask=mask, is_causal=True)
+            activations.append(hidden)
+        final_hidden = self.norm(hidden)
+        activations.append(final_hidden)
+        return self.output(final_hidden), activations
+
+    def logits_from_depth(self, hidden: Tensor, depth: int) -> tuple[Tensor, Tensor]:
+        """Resume after a captured depth: block indices first, final norm last."""
+        n_blocks = len(self.blocks.layers)
+        if not 0 <= depth <= n_blocks:
+            raise ValueError("depth outside captured activation range")
+        if depth < n_blocks:
+            mask = self._causal_mask(hidden.shape[1], hidden.device)
+            for block in self.blocks.layers[depth + 1 :]:
+                hidden = block(hidden, src_mask=mask, is_causal=True)
+            hidden = self.norm(hidden)
         return self.output(hidden), hidden
+
+    def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
+        logits, activations = self.forward_with_layers(tokens)
+        return logits, activations[-1]
 
 
 def build_model(name: str, vocab_size: int, config: dict) -> nn.Module:
@@ -71,4 +96,3 @@ def build_model(name: str, vocab_size: int, config: dict) -> nn.Module:
             max_length=int(config.get("max_length", 256)),
         )
     raise ValueError(f"unknown model: {name}")
-
