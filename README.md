@@ -22,6 +22,7 @@ make reproduce   # held-out probes and PCA records (trains if needed)
 make extension   # controlled causal erasure (trains if needed)
 make figures     # reads only results/*.jsonl
 make sweep-overlap # four overlap values × two models × three seeds
+make sweep-length  # lengths 8/16/32/64 × two models × three seeds
 pytest -q
 ```
 
@@ -37,6 +38,7 @@ pytest -q
 - `results/`: raw JSONL records; every result states model, seed, condition, and device.
 - `figures/`: regenerated exclusively from JSONL.
 - `results/sweep_overlap_*.jsonl` and `figures/sweep_overlap.png`: the registered source-overlap extension.
+- `results/sweep_length_*.jsonl` and `figures/sweep_length.png`: the registered sequence-length follow-up.
 - `STATE.md`: the current hypothesis → experiment → interpretation loop.
 - `report.md`: methods, results, negative results, and limitations.
 

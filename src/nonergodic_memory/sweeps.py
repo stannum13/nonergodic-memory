@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import argparse
 from pathlib import Path
 from typing import Iterable
 
@@ -18,7 +19,13 @@ def _mean_sd(records: list[dict], key: str) -> tuple[float, float]:
     return float(np.mean(values)), float(np.std(values))
 
 
-def generate_overlap_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
+def _generate_sweep_figure(
+    paths: Iterable[str | Path],
+    output: str | Path,
+    axis_key: str,
+    title: str,
+    x_label: str,
+) -> Path:
     records: list[dict] = []
     for path in paths:
         with Path(path).open(encoding="utf-8") as handle:
@@ -36,9 +43,9 @@ def generate_overlap_figure(paths: Iterable[str | Path], output: str | Path) -> 
         and record.get("control") == "learned"
     ]
     if not probes or not interventions:
-        raise ValueError("overlap figure requires probe and intervention records")
+        raise ValueError("sweep figure requires probe and intervention records")
     models = sorted({record["model"] for record in probes})
-    overlaps = sorted({float(record["overlap"]) for record in probes})
+    axis_values = sorted({float(record[axis_key]) for record in probes})
     fig, axes = plt.subplots(len(models), 2, figsize=(10.0, 3.5 * len(models)), squeeze=False)
     for row, model in enumerate(models):
         probe_axis, intervention_axis = axes[row]
@@ -47,18 +54,19 @@ def generate_overlap_figure(paths: Iterable[str | Path], output: str | Path) -> 
             ("state_posterior_r2", "all conditional states", "#EE6677"),
         ):
             gains, errors = [], []
-            for overlap in overlaps:
-                trained = [r for r in probes if r["model"] == model and r["overlap"] == overlap and r["training_condition"] == "trained"]
-                untrained = [r for r in probes if r["model"] == model and r["overlap"] == overlap and r["training_condition"] == "untrained"]
+            for axis_value in axis_values:
+                trained = [r for r in probes if r["model"] == model and float(r[axis_key]) == axis_value and r["training_condition"] == "trained"]
+                untrained = [r for r in probes if r["model"] == model and float(r[axis_key]) == axis_value and r["training_condition"] == "untrained"]
                 by_seed = {
                     r["seed"]: r[metric] - next(u[metric] for u in untrained if u["seed"] == r["seed"])
                     for r in trained
                 }
                 gains.append(float(np.mean(list(by_seed.values()))))
                 errors.append(float(np.std(list(by_seed.values()))))
-            probe_axis.errorbar(overlaps, gains, yerr=errors, marker="o", capsize=3, label=label, color=color)
+            probe_axis.errorbar(axis_values, gains, yerr=errors, marker="o", capsize=3, label=label, color=color)
         probe_axis.axhline(0, color="black", linewidth=0.7)
-        probe_axis.set(title=f"{model}: training gain", xlabel="source emission overlap", ylabel="trained − untrained $R^2$")
+        probe_axis.set(title=f"{model}: training gain", xlabel=x_label, ylabel="trained − untrained $R^2$")
+        probe_axis.set_xticks(axis_values)
         probe_axis.legend(frameon=False)
 
         for target, metric, label, color in (
@@ -66,17 +74,18 @@ def generate_overlap_figure(paths: Iterable[str | Path], output: str | Path) -> 
             ("state", "delta_conditional_state_accuracy", "state erasure", "#EE6677"),
         ):
             means, errors = [], []
-            for overlap in overlaps:
-                subset = [r for r in interventions if r["model"] == model and r["overlap"] == overlap and r["target"] == target]
+            for axis_value in axis_values:
+                subset = [r for r in interventions if r["model"] == model and float(r[axis_key]) == axis_value and r["target"] == target]
                 mean, sd = _mean_sd(subset, metric)
                 means.append(-mean)
                 errors.append(sd)
-            intervention_axis.errorbar(overlaps, means, yerr=errors, marker="o", capsize=3, label=label, color=color)
+            intervention_axis.errorbar(axis_values, means, yerr=errors, marker="o", capsize=3, label=label, color=color)
         intervention_axis.axhline(0, color="black", linewidth=0.7)
-        intervention_axis.set(title=f"{model}: independent-probe damage", xlabel="source emission overlap", ylabel="intended accuracy decrease")
+        intervention_axis.set(title=f"{model}: independent-probe damage", xlabel=x_label, ylabel="intended accuracy decrease")
+        intervention_axis.set_xticks(axis_values)
         intervention_axis.legend(frameon=False)
     seed_count = len({record["seed"] for record in probes})
-    fig.suptitle(f"Source-overlap sweep; mean ± seed SD (n={seed_count})")
+    fig.suptitle(f"{title}; mean ± seed SD (n={seed_count})")
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     fig.tight_layout()
@@ -85,17 +94,33 @@ def generate_overlap_figure(paths: Iterable[str | Path], output: str | Path) -> 
     return destination
 
 
+def generate_overlap_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
+    return _generate_sweep_figure(
+        paths, output, "overlap", "Source-overlap sweep", "source emission overlap"
+    )
+
+
+def generate_length_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
+    return _generate_sweep_figure(
+        paths, output, "sequence_length", "Sequence-length sweep", "sequence length"
+    )
+
+
 def main() -> None:
-    output = generate_overlap_figure(
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--axis", choices=["overlap", "length"], default="overlap")
+    args = parser.parse_args()
+    prefix = "sweep_overlap" if args.axis == "overlap" else "sweep_length"
+    generator = generate_overlap_figure if args.axis == "overlap" else generate_length_figure
+    output = generator(
         [
-            "results/sweep_overlap_reproduction.jsonl",
-            "results/sweep_overlap_extension.jsonl",
+            f"results/{prefix}_reproduction.jsonl",
+            f"results/{prefix}_extension.jsonl",
         ],
-        "figures/sweep_overlap.png",
+        f"figures/{prefix}.png",
     )
     print(f"generated {output}")
 
 
 if __name__ == "__main__":
     main()
-
