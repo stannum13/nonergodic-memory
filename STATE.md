@@ -6,20 +6,19 @@ Small next-token predictors trained on a fixed-component mixture will expose lin
 
 ## Last experiment
 
-Central configuration (`configs/reproduce.yaml`), seeds 0/1/2, on CPU. Two 2-state/four-token HMMs at emission overlap 0.35 generated 1,024 training sequences of length 32. Width-32, two-layer GRU and Transformer models trained for 20 epochs. Probes used 512 independent fit sequences and 256 held-out sequences; interventions used three disjoint direction-fit, evaluator-fit, and test datasets.
+Source-overlap sweep at 0.00, 0.35, 0.70, and 0.90, seeds 0/1/2, on CPU. Each cell fixed sequence length 32, width/depth 32/2, 512 training sequences, 12 epochs, and three disjoint intervention datasets. This smaller sweep configuration is exploratory and separate from the larger central configuration.
 
 ## Result
 
-- Mean ± seed SD held-out NLL: GRU 1.2084 ± 0.0119, Transformer 1.2383 ± 0.0141, exact Bayes 1.2039 ± 0.0112.
-- Trained component/full-conditional-state posterior R²: GRU 0.9901 ± 0.0021 / 0.9632 ± 0.0035; Transformer 0.9344 ± 0.0041 / 0.7439 ± 0.0209. Untrained values were 0.8265/0.9762 and 0.6452/0.7325 respectively. Shuffled-label R² was near zero.
-- With independent evaluator probes, learned component erasure changed component/state accuracy by −0.0309 ± 0.0341 / −0.0014 ± 0.0036 (GRU) and −0.4097 ± 0.2948 / −0.0079 ± 0.0028 (Transformer).
-- Learned state erasure changed component/state accuracy by −0.0081 ± 0.0022 / −0.1113 ± 0.0835 (GRU) and −0.0023 ± 0.0020 / −0.1686 ± 0.0388 (Transformer). Norm-matched controls were near zero, but intended damage varied substantially across seeds.
-- Predictive damage remained small except Transformer component erasure at mean ΔNLL +0.0143 ± 0.0064. Untrained networks also displayed selective erasure effects.
+- GRU trained-minus-untrained component-posterior R² gain across overlap 0.00/0.35/0.70/0.90: 0.074/0.153/0.193/−0.004. Transformer: 0.170/0.301/0.287/0.027.
+- Full conditional-state R² gain stayed small: GRU −0.010/−0.009/0.004/0.012; Transformer 0.019/0.027/0.048/0.063.
+- Intended component-erasure accuracy damage was nonmonotonic and seed-sensitive: GRU 0.013/0.053/0.017/0.042; Transformer 0.133/0.115/0.221/0.038.
+- Intended state-erasure damage was GRU 0.019/0.040/0.097/0.033 and Transformer 0.192/0.174/0.177/0.151. Every value is a mean across three seeds; seed SDs are plotted in `figures/sweep_overlap.png`.
 
 ## Interpretation
 
-The central run reproduces training-enhanced linear recovery of component belief. It does not reproduce a training-specific conditional-state result: random GRU features perform better and Transformer improvement is marginal. Independent-evaluator erasure reveals selective organization on average, especially in the Transformer, but high seed variance and strong untrained effects falsify the stronger hypothesis of stable, training-created selective subspaces. Output behavior is mostly robust to final-layer erasure.
+The registered prediction of a monotonic decline in component-posterior training advantage with overlap is falsified. Gain peaks at intermediate overlap and collapses only when the sources are nearly identical. A plausible interpretation is a boundary effect: at zero overlap, recent tokens make component inference easy even for random features; at intermediate overlap, learned temporal integration adds value; at 0.90 there is little identifiable component signal to learn. This explanation is post hoc and should be tested by varying sequence length. The causal-erasure curves are also nonmonotonic and do not rescue a stable-subspace claim.
 
 ## Next smallest experiment
 
-Sweep source overlap through 0.0, 0.35, 0.7, and 0.9 at fixed width/length. The falsifiable prediction is that trained-over-untrained component-posterior R² and component-erasure selectivity shrink as sources become observationally indistinguishable. Only after that should sequence length, component count, width, and intervention depth be varied.
+At fixed overlap 0.35, sweep sequence length through 8, 16, 32, and 64. The falsifiable post-hoc prediction is that trained-over-untrained component-posterior R² gain grows with length because learned integration should matter more when evidence is distributed over longer histories. Component count, width, and intervention depth follow only after this test.

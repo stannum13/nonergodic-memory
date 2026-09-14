@@ -106,6 +106,8 @@ def main() -> None:
                             "device": "cpu",
                             "config": config_name,
                             "config_sha256": config_sha256,
+                            "overlap": float(config["data"]["overlap"]),
+                            "sequence_length": int(config["data"]["sequence_length"]),
                             "training_condition": condition,
                             "target": target,
                             "control": control,
