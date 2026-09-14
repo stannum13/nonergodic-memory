@@ -1,0 +1,18 @@
+data:
+  overlap: 0.35
+  sequence_length: 12
+  train_sequences: 96
+  test_sequences: 48
+model:
+  width: 16
+  layers: 1
+  heads: 2
+  max_length: 64
+train:
+  epochs: 8
+  batch_size: 32
+  learning_rate: 0.01
+probe:
+  train_sequences: 64
+  test_sequences: 48
+
