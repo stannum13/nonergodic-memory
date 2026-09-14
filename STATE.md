@@ -6,19 +6,19 @@ Small next-token predictors trained on a fixed-component mixture will expose lin
 
 ## Last experiment
 
-Model-width sweep at 8, 16, 32, and 64, seeds 0/1/2, on CPU. Each cell fixed two sources, overlap 0.35, length 32, depth 2, 512 training sequences, 12 epochs, and three disjoint intervention datasets.
+Transformer intervention-depth sweep after block 1, block 2, and final normalization, seeds 0/1/2, on CPU at the central setting. Each intervention used disjoint direction-fit, evaluator-fit, and test sequences and was propagated through the actual remaining Transformer layers.
 
 ## Result
 
-- Trained component-posterior R² at width 8/16/32/64: GRU 0.936/0.964/0.984/0.990; Transformer 0.831/0.922/0.936/0.918.
-- Untrained R² rises more sharply with width: GRU 0.693/0.778/0.831/0.857; Transformer 0.136/0.434/0.636/0.794. Consequently, trained-minus-untrained gain decreases rather than increases.
-- Intended component-erasure damage and coefficient of variation: GRU 0.024 (0.78), 0.080 (0.95), 0.053 (0.62), 0.018 (0.77); Transformer 0.306 (0.48), 0.128 (0.47), 0.115 (0.74), 0.043 (0.71).
-- Intended state-erasure CV is also nonmonotonic for the GRU (0.11/0.69/0.86/0.44) and Transformer (0.33/0.16/0.20/0.12).
+- Trained component-posterior R² rises with depth: 0.733/0.893/0.928; untrained recovery is 0.493/0.627/0.633.
+- Component-erasure Δ exact-predictive KL also rises: 0.0050/0.0074/0.0135. Its intended component-accuracy decrease instead falls: 0.589/0.438/0.410, with large seed SD 0.179/0.224/0.295.
+- Conditional-state posterior R² is 0.773/0.774/0.746. State-erasure intended accuracy decrease is 0.152/0.149/0.169, while Δ exact-predictive KL falls 0.0076/0.0026/0.0019.
+- Learned intended damage exceeds norm-matched controls at all depths; cross-target accuracy decrease is at most 0.020.
 
 ## Interpretation
 
-The saturation part of the width prediction is broadly supported for GRU and only through width 32 for Transformer. The causal-stability part is falsified: relative seed variability does not decrease monotonically with width. The trained-over-untrained regression gap shrinks because random wide features recover far more belief information. Width improves representational capacity but does not stabilize the learned erasure basis.
+The prediction is partially supported for component belief: linear recovery and predictive KL damage increase with depth, and selectivity beats matched controls. It is falsified as a general account of both belief types. Component-decoding damage does not increase, conditional-state recovery does not improve, and state-target predictive damage decreases. Depth changes how component information affects prediction, but does not create a uniform hierarchy of increasing causal necessity.
 
 ## Next smallest experiment
 
-For the two-layer Transformer at the central setting, compare intervention after block 1, after block 2, and after final normalization. The falsifiable prediction is that component-posterior recovery and behavioral damage increase with depth, while independent-evaluator selectivity remains larger than matched controls. This is the final planned sweep.
+The planned one-axis sweeps are complete. The next smallest discriminating experiment, if extending the artifact, is a preregistered 2×2 overlap-by-context grid to test whether the observed temporal-integration gain is specifically largest at intermediate source overlap rather than an additive artifact. No result is claimed for that unrun interaction.

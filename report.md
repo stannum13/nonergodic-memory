@@ -26,6 +26,8 @@ Probe fitting and evaluation use separately sampled datasets. Component classifi
 
 For causal erasure, the effective probe coefficient rows are mapped back through feature standardization, reduced to an orthonormal row-space basis, and projected out around the direction-fit activation mean. The state subspace combines rows from component-specific state probes. A second probe family, fitted on an independent dataset, evaluates altered activations on a third test dataset; it is never used to define the removed basis. Controls use a random subspace of equal rank, a random intervention rescaled per example to match the learned intervention’s removed-vector norm, and directions from shuffled-label probes. The intervention is at the final activation immediately before the output head.
 
+The depth follow-up captures activations after each Transformer block and after final normalization. Interventions before the final layer are propagated through the actual remaining attention blocks and normalization before NLL and exact-predictive KL are computed. Classification metrics are evaluated at the edited site; explicitly named baseline posterior-R² fields describe pre-intervention linear recovery at that site. A continuation test verifies that unedited captured activations reproduce the original logits at every site.
+
 ## Reproduction results
 
 Values are mean ± population standard deviation across seeds 0, 1, and 2.
@@ -104,6 +106,22 @@ Widths 8, 16, 32, and 64 were tested at fixed two-source data and depth two. The
 
 GRU recovery saturates; Transformer recovery peaks at width 32. The training advantage shrinks with width because untrained random features improve more rapidly. Component-erasure damage CV is 0.78/0.95/0.62/0.77 for GRU and 0.48/0.47/0.74/0.71 for Transformer, so the registered stability prediction is falsified. The same nonmonotonicity appears for state erasure. The sweep took 147.6 seconds on CPU.
 
+## Transformer intervention-depth sweep
+
+The final registered prediction was that component-posterior recovery and behavioral damage would increase from block 1 through block 2 to final normalization, with learned selectivity exceeding matched controls. The result is mixed:
+
+| metric | block 1 | block 2 | final norm |
+|---|---:|---:|---:|
+| trained component posterior R² | 0.733 ± 0.009 | 0.893 ± 0.006 | 0.928 ± 0.009 |
+| untrained component posterior R² | 0.493 ± 0.068 | 0.627 ± 0.042 | 0.633 ± 0.041 |
+| trained conditional-state posterior R² | 0.773 ± 0.015 | 0.774 ± 0.024 | 0.746 ± 0.022 |
+| component erasure: intended accuracy decrease | 0.589 ± 0.179 | 0.438 ± 0.224 | 0.410 ± 0.295 |
+| component erasure: Δ exact-predictive KL | 0.0050 | 0.0074 | 0.0135 |
+| state erasure: intended accuracy decrease | 0.152 ± 0.040 | 0.149 ± 0.021 | 0.169 ± 0.039 |
+| state erasure: Δ exact-predictive KL | 0.0076 | 0.0026 | 0.0019 |
+
+Component recovery and component-target predictive damage rise with depth, supporting that portion of the prediction. Component-decoding damage instead decreases, conditional-state recovery is flat then lower, and state-target predictive damage decreases. Intended learned accuracy damage remains much larger than norm-matched damage at every site (component matched means at most 0.001; state at most 0.003), while cross-target accuracy damage stays at most 0.020. Thus selective linear organization exists throughout the network, but deeper layers do not uniformly make both belief types more behaviorally necessary. The sweep took about 25 seconds on CPU.
+
 ## Negative results and limitations
 
 - Untrained networks are surprisingly decodable: recent-token features alone expose much of component and state information. Classification accuracy without the untrained and shuffled controls would overstate the result.
@@ -112,9 +130,9 @@ GRU recovery saturates; Transformer recovery peaks at width 32. The training adv
 - Final-layer erasure barely changes GRU NLL, and only Transformer component erasure produces a clearly nontrivial mean NLL increase. Decoder damage does not imply equivalent behavioral necessity.
 - Three seeds quantify run variability but are insufficient for strong population-level inference; no p-values are reported.
 - The simple state-emission HMMs do not recreate Mess3’s fractal reachable-state geometry. PCA separation is not evidence for telescoping cones.
-- The central result still covers only overlap 0.35, two components, length 32, width 32, and final-layer intervention. The exploratory overlap, length, component-count, and width sweeps each change one variable at smaller fixed training compute; layer depth remains the final follow-up.
+- The central result still covers only overlap 0.35, two components, length 32, and width 32. The exploratory overlap, length, component-count, width, and Transformer-depth sweeps each change one variable; interactions between these axes remain untested.
 - Erasure is based on a single linear probe fit. Iterative nullspace projection or nonlinear adversaries could find residual information not measured here.
 
 ## Reproducibility
 
-The checked-in central run used CPU only. In the observed environment, six training runs took about 39 seconds, cached-checkpoint reproduction analysis 14.1 seconds, and the three-split intervention analysis 17.4 seconds. The complete overlap, length, component-count, and width sweeps took 151.7, 146.5, 136.5, and 147.6 seconds. `make smoke` runs the complete one-seed pipeline. `make train`, `make reproduce`, `make extension`, `make figures`, and the four `make sweep-*` commands regenerate the artifact. Checkpoints are validated against the full requested configuration, model, and seed. Partial CLI reruns atomically replace only matching result cells. Records carry a configuration digest and runtime library versions. Figures read only JSONL records, discard stale outputs, facet architectures, state seed sample sizes, and keep central aggregation separate from sweep records.
+The checked-in central run used CPU only. In the observed environment, six training runs took about 39 seconds, cached-checkpoint reproduction analysis 14.1 seconds, and the three-split intervention analysis 17.4 seconds. The complete overlap, length, component-count, width, and depth sweeps took 151.7, 146.5, 136.5, 147.6, and about 25 seconds. `make smoke` runs the complete one-seed pipeline. `make train`, `make reproduce`, `make extension`, `make figures`, and the five `make sweep-*` commands regenerate the artifact. Checkpoints are validated against the full requested configuration, model, and seed. Partial CLI reruns atomically replace only matching result cells. Records carry a configuration digest and runtime library versions. Figures read only JSONL records, discard stale outputs, facet architectures, state seed sample sizes, and keep central aggregation separate from sweep records.

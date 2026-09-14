@@ -1,7 +1,14 @@
 import numpy as np
 import pytest
 
-from nonergodic_memory.analysis import ActivationTable, fit_probes, pca_records
+from nonergodic_memory.analysis import (
+    ActivationTable,
+    collect_transformer_depth_activations,
+    fit_probes,
+    pca_records,
+)
+from nonergodic_memory.data.hmm import make_two_source_mixture
+from nonergodic_memory.models.sequence import TransformerPredictor
 
 
 def separable_table(seed: int, n_sequences: int = 20, sequence_offset: int = 0) -> ActivationTable:
@@ -63,3 +70,13 @@ def test_probe_rejects_overlapping_sequence_ids() -> None:
     test = separable_table(8)
     with pytest.raises(ValueError, match="overlap"):
         fit_probes(train, test, seed=9)
+
+
+def test_collect_transformer_depth_activations_uses_requested_layer() -> None:
+    mixture = make_two_source_mixture(0.35)
+    batch = mixture.sample(5, 7, seed=12)
+    model = TransformerPredictor(4, width=8, layers=2, heads=2, max_length=8)
+    first = collect_transformer_depth_activations(model, batch, mixture, depth=0)
+    normalized = collect_transformer_depth_activations(model, batch, mixture, depth=2)
+    assert first.hidden.shape == normalized.hidden.shape == (30, 8)
+    assert not np.allclose(first.hidden, normalized.hidden)

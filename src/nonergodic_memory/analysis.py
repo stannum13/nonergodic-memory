@@ -15,6 +15,7 @@ from sklearn.preprocessing import StandardScaler
 from torch import nn
 
 from .data.hmm import HMMMixture, SequenceBatch
+from .models.sequence import TransformerPredictor
 
 
 FloatArray = NDArray[np.float64]
@@ -54,6 +55,17 @@ def collect_activations(
     model.eval()
     inputs = torch.from_numpy(batch.tokens[:, :-1])
     logits, hidden = model(inputs)
+    return _make_activation_table(hidden, logits, batch, mixture, sequence_offset)
+
+
+def _make_activation_table(
+    hidden: torch.Tensor,
+    logits: torch.Tensor,
+    batch: SequenceBatch,
+    mixture: HMMMixture,
+    sequence_offset: int,
+) -> ActivationTable:
+    inputs = batch.tokens[:, :-1]
     n_sequences, positions = inputs.shape
     exact = mixture.filter(batch.tokens[:, :-1])
     component_grid = np.repeat(batch.components[:, None], positions, axis=1)
@@ -71,6 +83,24 @@ def collect_activations(
         targets=batch.tokens[:, 1:].reshape(-1).astype(np.int64),
         sequence_ids=np.repeat(np.arange(n_sequences) + sequence_offset, positions).astype(np.int64),
         positions=np.tile(np.arange(positions), n_sequences).astype(np.int64),
+    )
+
+
+@torch.no_grad()
+def collect_transformer_depth_activations(
+    model: TransformerPredictor,
+    batch: SequenceBatch,
+    mixture: HMMMixture,
+    depth: int,
+    sequence_offset: int = 0,
+) -> ActivationTable:
+    model.eval()
+    inputs = torch.from_numpy(batch.tokens[:, :-1])
+    logits, activations = model.forward_with_layers(inputs)
+    if not 0 <= depth < len(activations):
+        raise ValueError("depth outside captured activation range")
+    return _make_activation_table(
+        activations[depth], logits, batch, mixture, sequence_offset
     )
 
 

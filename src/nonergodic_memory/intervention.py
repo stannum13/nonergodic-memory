@@ -76,6 +76,16 @@ def evaluate_hidden(
     weight = output_layer.weight.detach().numpy().astype(np.float64)
     bias = output_layer.bias.detach().numpy().astype(np.float64)
     logits = hidden @ weight.T + bias
+    return evaluate_hidden_with_logits(hidden, logits, table, probes)
+
+
+def evaluate_hidden_with_logits(
+    hidden: FloatArray,
+    logits: FloatArray,
+    table: ActivationTable,
+    probes: ProbeBundle,
+) -> dict[str, float]:
+    """Evaluate probes at an intervention site and propagated output logits."""
     log_probability = _log_softmax(logits)
     nll = -log_probability[np.arange(len(table.targets)), table.targets].mean()
     kl = (
@@ -103,6 +113,26 @@ def intervention_record(
     baseline: dict[str, float],
 ) -> dict[str, float]:
     post = evaluate_hidden(altered_hidden, table, probes, output_layer)
+    return _intervention_record(table, altered_hidden, baseline, post)
+
+
+def intervention_record_with_logits(
+    table: ActivationTable,
+    probes: ProbeBundle,
+    altered_hidden: FloatArray,
+    logits: FloatArray,
+    baseline: dict[str, float],
+) -> dict[str, float]:
+    post = evaluate_hidden_with_logits(altered_hidden, logits, table, probes)
+    return _intervention_record(table, altered_hidden, baseline, post)
+
+
+def _intervention_record(
+    table: ActivationTable,
+    altered_hidden: FloatArray,
+    baseline: dict[str, float],
+    post: dict[str, float],
+) -> dict[str, float]:
     return {
         "nll": post["nll"],
         "delta_nll": post["nll"] - baseline["nll"],
@@ -116,4 +146,3 @@ def intervention_record(
         ),
         "mean_removed_norm": float(np.linalg.norm(table.hidden - altered_hidden, axis=1).mean()),
     }
-
