@@ -15,7 +15,10 @@ import numpy as np
 def _load_records(results_dir: Path) -> list[dict]:
     records: list[dict] = []
     paths = sorted(results_dir.glob("*.jsonl"))
-    central_paths = [path for path in paths if not path.name.startswith("smoke_")]
+    canonical_names = {"training.jsonl", "reproduction.jsonl", "extension.jsonl"}
+    central_paths = [path for path in paths if path.name in canonical_names]
+    if not central_paths:
+        central_paths = [path for path in paths if not path.name.startswith("smoke_")]
     if central_paths:
         paths = central_paths
     for path in paths:

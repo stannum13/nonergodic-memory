@@ -21,6 +21,7 @@ make train       # central config, seeds 0/1/2, both models
 make reproduce   # held-out probes and PCA records (trains if needed)
 make extension   # controlled causal erasure (trains if needed)
 make figures     # reads only results/*.jsonl
+make sweep-overlap # four overlap values × two models × three seeds
 pytest -q
 ```
 
@@ -35,6 +36,7 @@ pytest -q
 - `configs/`: smoke and central CPU configurations.
 - `results/`: raw JSONL records; every result states model, seed, condition, and device.
 - `figures/`: regenerated exclusively from JSONL.
+- `results/sweep_overlap_*.jsonl` and `figures/sweep_overlap.png`: the registered source-overlap extension.
 - `STATE.md`: the current hypothesis → experiment → interpretation loop.
 - `report.md`: methods, results, negative results, and limitations.
 

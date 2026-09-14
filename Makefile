@@ -1,4 +1,4 @@
-.PHONY: smoke train reproduce extension figures test clean-results
+.PHONY: smoke train reproduce extension figures sweep-overlap test clean-results
 
 PYTHON ?= python3
 export PYTHONPATH := src:$(PYTHONPATH)
@@ -18,9 +18,11 @@ extension:
 figures:
 	bash scripts/figures.sh
 
+sweep-overlap:
+	bash scripts/sweep_overlap.sh
+
 test:
 	pytest -q
 
 clean-results:
 	rm -f results/*.jsonl figures/*.png
-
