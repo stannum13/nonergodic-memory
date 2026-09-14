@@ -7,11 +7,11 @@ import argparse
 from pathlib import Path
 
 from nonergodic_memory.analysis import collect_activations, fit_probes
-from nonergodic_memory.data.hmm import make_two_source_mixture
 from nonergodic_memory.experiment import (
     config_digest,
     load_checkpoint,
     load_config,
+    mixture_from_config,
     replace_jsonl_runs,
     runtime_provenance,
     set_seed,
@@ -40,7 +40,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
-    mixture = make_two_source_mixture(float(config["data"]["overlap"]))
+    mixture = mixture_from_config(config)
     config_name = Path(args.config).stem
     config_sha256 = config_digest(config)
     provenance = runtime_provenance()
@@ -108,6 +108,7 @@ def main() -> None:
                             "config_sha256": config_sha256,
                             "overlap": float(config["data"]["overlap"]),
                             "sequence_length": int(config["data"]["sequence_length"]),
+                            "components": int(config["data"].get("components", 2)),
                             "training_condition": condition,
                             "target": target,
                             "control": control,

@@ -15,8 +15,18 @@ import numpy as np
 
 
 def _mean_sd(records: list[dict], key: str) -> tuple[float, float]:
+    if not records:
+        return float("nan"), 0.0
     values = [record[key] for record in records]
     return float(np.mean(values)), float(np.std(values))
+
+
+def _load_paths(paths: Iterable[str | Path]) -> list[dict]:
+    records: list[dict] = []
+    for path in paths:
+        with Path(path).open(encoding="utf-8") as handle:
+            records.extend(json.loads(line) for line in handle if line.strip())
+    return records
 
 
 def _generate_sweep_figure(
@@ -26,10 +36,7 @@ def _generate_sweep_figure(
     title: str,
     x_label: str,
 ) -> Path:
-    records: list[dict] = []
-    for path in paths:
-        with Path(path).open(encoding="utf-8") as handle:
-            records.extend(json.loads(line) for line in handle if line.strip())
+    records = _load_paths(paths)
     probes = [
         record
         for record in records
@@ -106,12 +113,59 @@ def generate_length_figure(paths: Iterable[str | Path], output: str | Path) -> P
     )
 
 
+def generate_component_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
+    records = _load_paths(paths)
+    probes = [r for r in records if r.get("record_type") == "probe" and r.get("control") == "none"]
+    interventions = [
+        r for r in records
+        if r.get("record_type") == "intervention" and r.get("control") == "learned" and r.get("target") == "component"
+    ]
+    if not probes or not interventions:
+        raise ValueError("component sweep requires probe and intervention records")
+    models = sorted({r["model"] for r in probes})
+    counts = sorted({int(r["components"]) for r in probes})
+    fig, axes = plt.subplots(len(models), 2, figsize=(10.0, 3.5 * len(models)), squeeze=False)
+    for row, model in enumerate(models):
+        recovery_axis, damage_axis = axes[row]
+        for metric, color in (("component_accuracy", "#4477AA"), ("component_posterior_r2", "#EE6677")):
+            for condition, style in (("trained", "-"), ("untrained", "--")):
+                means, errors = [], []
+                for count in counts:
+                    subset = [r for r in probes if r["model"] == model and r["components"] == count and r["training_condition"] == condition]
+                    mean, sd = _mean_sd(subset, metric)
+                    means.append(mean)
+                    errors.append(sd)
+                recovery_axis.errorbar(counts, means, yerr=errors, marker="o", linestyle=style, capsize=3, color=color, label=f"{metric.replace('_', ' ')}: {condition}")
+        recovery_axis.set(title=f"{model}: component recovery", xlabel="number of components", ylabel="held-out score", xticks=counts)
+        recovery_axis.legend(frameon=False, fontsize=8)
+
+        for condition, style, color in (("trained", "-", "#4477AA"), ("untrained", "--", "#999999")):
+            means, errors = [], []
+            for count in counts:
+                subset = [r for r in interventions if r["model"] == model and r["components"] == count and r["training_condition"] == condition]
+                mean, sd = _mean_sd(subset, "delta_component_accuracy")
+                means.append(-mean)
+                errors.append(sd)
+            damage_axis.errorbar(counts, means, yerr=errors, marker="o", linestyle=style, capsize=3, color=color, label=condition)
+        damage_axis.axhline(0, color="black", linewidth=0.7)
+        damage_axis.set(title=f"{model}: independent-probe component damage", xlabel="number of components", ylabel="accuracy decrease", xticks=counts)
+        damage_axis.legend(frameon=False)
+    seed_count = len({r["seed"] for r in probes})
+    fig.suptitle(f"Component-count sweep; mean ± seed SD (n={seed_count})")
+    destination = Path(output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(destination, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return destination
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--axis", choices=["overlap", "length"], default="overlap")
+    parser.add_argument("--axis", choices=["overlap", "length", "components"], default="overlap")
     args = parser.parse_args()
-    prefix = "sweep_overlap" if args.axis == "overlap" else "sweep_length"
-    generator = generate_overlap_figure if args.axis == "overlap" else generate_length_figure
+    prefix = {"overlap": "sweep_overlap", "length": "sweep_length", "components": "sweep_components"}[args.axis]
+    generator = {"overlap": generate_overlap_figure, "length": generate_length_figure, "components": generate_component_figure}[args.axis]
     output = generator(
         [
             f"results/{prefix}_reproduction.jsonl",
