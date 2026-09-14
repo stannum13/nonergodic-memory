@@ -170,6 +170,7 @@ def train_one(
         "sequence_length": int(data_config["sequence_length"]),
         "train_sequences": int(data_config["train_sequences"]),
         "components": int(data_config.get("components", 2)),
+        "model_width": int(config["model"]["width"]),
         "initial_train_nll": initial["nll"],
         "train_nll": train_metrics["nll"],
         "test_nll": test_metrics["nll"],

@@ -24,6 +24,7 @@ make figures     # reads only results/*.jsonl
 make sweep-overlap # four overlap values × two models × three seeds
 make sweep-length  # lengths 8/16/32/64 × two models × three seeds
 make sweep-components # 2/3/4 components × two models × three seeds
+make sweep-width   # widths 8/16/32/64 × two models × three seeds
 pytest -q
 ```
 
@@ -41,6 +42,7 @@ pytest -q
 - `results/sweep_overlap_*.jsonl` and `figures/sweep_overlap.png`: the registered source-overlap extension.
 - `results/sweep_length_*.jsonl` and `figures/sweep_length.png`: the registered sequence-length follow-up.
 - `results/sweep_components_*.jsonl` and `figures/sweep_components.png`: the registered component-count sweep.
+- `results/sweep_width_*.jsonl` and `figures/sweep_width.png`: the registered model-width sweep.
 - `STATE.md`: the current hypothesis → experiment → interpretation loop.
 - `report.md`: methods, results, negative results, and limitations.
 

@@ -5,6 +5,7 @@ from nonergodic_memory.sweeps import (
     generate_component_figure,
     generate_length_figure,
     generate_overlap_figure,
+    generate_width_figure,
 )
 
 
@@ -126,3 +127,21 @@ def test_component_figure_tracks_absolute_recovery(tmp_path: Path) -> None:
     generate_component_figure([path], output)
     assert output.exists()
     assert output.stat().st_size > 1000
+
+
+def test_width_figure_uses_model_width_axis(tmp_path: Path) -> None:
+    records = []
+    for width in (8, 16):
+        for condition in ("trained", "untrained"):
+            records.append(
+                {"record_type": "probe", "model": "gru", "seed": 0, "model_width": width, "training_condition": condition, "control": "none", "component_posterior_r2": 0.8, "state_posterior_r2": 0.7}
+            )
+        for target in ("component", "state"):
+            records.append(
+                {"record_type": "intervention", "model": "gru", "seed": 0, "model_width": width, "training_condition": "trained", "control": "learned", "target": target, "delta_component_accuracy": -0.2, "delta_conditional_state_accuracy": -0.1}
+            )
+    path = tmp_path / "width.jsonl"
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    output = tmp_path / "width.png"
+    generate_width_figure([path], output)
+    assert output.exists() and output.stat().st_size > 1000

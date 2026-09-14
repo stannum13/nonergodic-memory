@@ -113,6 +113,12 @@ def generate_length_figure(paths: Iterable[str | Path], output: str | Path) -> P
     )
 
 
+def generate_width_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
+    return _generate_sweep_figure(
+        paths, output, "model_width", "Model-width sweep", "model width"
+    )
+
+
 def generate_component_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
     records = _load_paths(paths)
     probes = [r for r in records if r.get("record_type") == "probe" and r.get("control") == "none"]
@@ -162,10 +168,10 @@ def generate_component_figure(paths: Iterable[str | Path], output: str | Path) -
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--axis", choices=["overlap", "length", "components"], default="overlap")
+    parser.add_argument("--axis", choices=["overlap", "length", "components", "width"], default="overlap")
     args = parser.parse_args()
-    prefix = {"overlap": "sweep_overlap", "length": "sweep_length", "components": "sweep_components"}[args.axis]
-    generator = {"overlap": generate_overlap_figure, "length": generate_length_figure, "components": generate_component_figure}[args.axis]
+    prefix = {"overlap": "sweep_overlap", "length": "sweep_length", "components": "sweep_components", "width": "sweep_width"}[args.axis]
+    generator = {"overlap": generate_overlap_figure, "length": generate_length_figure, "components": generate_component_figure, "width": generate_width_figure}[args.axis]
     output = generator(
         [
             f"results/{prefix}_reproduction.jsonl",

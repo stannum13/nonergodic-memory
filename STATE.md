@@ -6,18 +6,19 @@ Small next-token predictors trained on a fixed-component mixture will expose lin
 
 ## Last experiment
 
-Component-count sweep at 2, 3, and 4 sources, seeds 0/1/2, on CPU. Each cell fixed overlap 0.35, length 32, width/depth 32/2, 512 training sequences, 12 epochs, and three disjoint intervention datasets. The generalized generator preserves the original two-source emissions and adds distinct emission permutations for sources three and four.
+Model-width sweep at 8, 16, 32, and 64, seeds 0/1/2, on CPU. Each cell fixed two sources, overlap 0.35, length 32, depth 2, 512 training sequences, 12 epochs, and three disjoint intervention datasets.
 
 ## Result
 
-- Trained component accuracy for 2/3/4 sources: GRU 0.949/0.836/0.759; Transformer 0.944/0.807/0.729.
-- Trained component-posterior R²: GRU 0.984/0.931/0.877; Transformer 0.936/0.762/0.630. Untrained R² was 0.831/0.698/0.616 and 0.636/0.415/0.360 respectively.
-- Intended trained component-erasure damage: GRU 0.053/0.227/0.195; Transformer 0.115/0.366/0.356. Untrained damage was 0.111/0.280/0.266 and 0.271/0.339/0.324, so increased damage is not training-specific.
+- Trained component-posterior R² at width 8/16/32/64: GRU 0.936/0.964/0.984/0.990; Transformer 0.831/0.922/0.936/0.918.
+- Untrained R² rises more sharply with width: GRU 0.693/0.778/0.831/0.857; Transformer 0.136/0.434/0.636/0.794. Consequently, trained-minus-untrained gain decreases rather than increases.
+- Intended component-erasure damage and coefficient of variation: GRU 0.024 (0.78), 0.080 (0.95), 0.053 (0.62), 0.018 (0.77); Transformer 0.306 (0.48), 0.128 (0.47), 0.115 (0.74), 0.043 (0.71).
+- Intended state-erasure CV is also nonmonotonic for the GRU (0.11/0.69/0.86/0.44) and Transformer (0.33/0.16/0.20/0.12).
 
 ## Interpretation
 
-The registered component-count prediction is supported: both absolute classification and posterior R² decline as the component simplex expands at fixed width. Training retains meaningful advantage over random features, especially for the Transformer. Independent component-erasure damage grows from two to three components but does not increase further at four and is comparable in untrained networks. This continues to separate the robust correlational result from the unstable training-specific causal claim.
+The saturation part of the width prediction is broadly supported for GRU and only through width 32 for Transformer. The causal-stability part is falsified: relative seed variability does not decrease monotonically with width. The trained-over-untrained regression gap shrinks because random wide features recover far more belief information. Width improves representational capacity but does not stabilize the learned erasure basis.
 
 ## Next smallest experiment
 
-At fixed overlap 0.35, length 32, and two components, sweep model width through 8, 16, 32, and 64. The falsifiable prediction is that trained component-posterior R² saturates while independent-erasure stability (lower relative seed SD) improves with width. Intervention depth follows after this test.
+For the two-layer Transformer at the central setting, compare intervention after block 1, after block 2, and after final normalization. The falsifiable prediction is that component-posterior recovery and behavioral damage increase with depth, while independent-evaluator selectivity remains larger than matched controls. This is the final planned sweep.
