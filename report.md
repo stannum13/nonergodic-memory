@@ -63,6 +63,19 @@ After the central experiment, overlap was swept through 0.00, 0.35, 0.70, and 0.
 
 Component gain is largest at intermediate overlap and collapses only at 0.90. A post-hoc explanation is that component identity is trivially available from recent tokens at zero overlap, benefits from trained integration at intermediate overlap, and becomes nearly unidentifiable at high overlap. Independent-probe damage is also nonmonotonic: mean intended component damage across the same overlap values is 0.013/0.053/0.017/0.042 for the GRU and 0.133/0.115/0.221/0.038 for the Transformer. The raw three-seed distributions and error bars are retained; this sweep strengthens the negative conclusion about a simple, stable causal geometry.
 
+## Sequence-length follow-up
+
+The overlap interpretation made a new, falsifiable prediction: if training adds temporal integration, trained-over-untrained component-posterior R² gain should grow with context length at fixed overlap 0.35. The prediction was registered in `STATE.md` before sweeping lengths 8, 16, 32, and 64.
+
+| model | metric | length 8 | 16 | 32 | 64 |
+|---|---|---:|---:|---:|---:|
+| GRU | component R² gain | 0.040 | 0.099 | 0.153 | 0.181 |
+| Transformer | component R² gain | 0.035 | 0.138 | 0.301 | 0.442 |
+| GRU | conditional-state R² gain | −0.010 | −0.013 | −0.009 | −0.006 |
+| Transformer | conditional-state R² gain | −0.011 | −0.001 | 0.027 | 0.036 |
+
+The component result is monotonic for both architectures and supports learned long-context integration. The conditional-state result remains negative for the GRU and small for the Transformer. Intended Transformer component-erasure damage grows from 0.010 at length 8 to 0.462 at length 64, but the latter has seed SD 0.309; causal alignment is much less stable than correlational recovery. The complete sweep took 146.5 seconds on CPU.
+
 ## Negative results and limitations
 
 - Untrained networks are surprisingly decodable: recent-token features alone expose much of component and state information. Classification accuracy without the untrained and shuffled controls would overstate the result.
@@ -71,9 +84,9 @@ Component gain is largest at intermediate overlap and collapses only at 0.90. A 
 - Final-layer erasure barely changes GRU NLL, and only Transformer component erasure produces a clearly nontrivial mean NLL increase. Decoder damage does not imply equivalent behavioral necessity.
 - Three seeds quantify run variability but are insufficient for strong population-level inference; no p-values are reported.
 - The simple state-emission HMMs do not recreate Mess3’s fractal reachable-state geometry. PCA separation is not evidence for telescoping cones.
-- The central result still covers only overlap 0.35, two components, length 32, width 32, and final-layer intervention. The exploratory overlap sweep changes one variable at smaller fixed training compute; component count, width, length, and layer depth remain follow-ups.
+- The central result still covers only overlap 0.35, two components, length 32, width 32, and final-layer intervention. The exploratory overlap and length sweeps each change one variable at smaller fixed training compute; component count, width, and layer depth remain follow-ups.
 - Erasure is based on a single linear probe fit. Iterative nullspace projection or nonlinear adversaries could find residual information not measured here.
 
 ## Reproducibility
 
-The checked-in central run used CPU only. In the observed environment, six training runs took about 39 seconds, cached-checkpoint reproduction analysis 14.1 seconds, and the three-split intervention analysis 17.4 seconds. The complete overlap sweep took 151.7 seconds. `make smoke` runs the complete one-seed pipeline. `make train`, `make reproduce`, `make extension`, `make figures`, and `make sweep-overlap` regenerate the artifact. Checkpoints are validated against the full requested configuration, model, and seed. Partial CLI reruns atomically replace only matching result cells. Records carry a configuration digest and runtime library versions. Figures read only JSONL records, discard stale outputs, facet architectures, state seed sample sizes, and keep central aggregation separate from sweep records.
+The checked-in central run used CPU only. In the observed environment, six training runs took about 39 seconds, cached-checkpoint reproduction analysis 14.1 seconds, and the three-split intervention analysis 17.4 seconds. The complete overlap and length sweeps took 151.7 and 146.5 seconds. `make smoke` runs the complete one-seed pipeline. `make train`, `make reproduce`, `make extension`, `make figures`, `make sweep-overlap`, and `make sweep-length` regenerate the artifact. Checkpoints are validated against the full requested configuration, model, and seed. Partial CLI reruns atomically replace only matching result cells. Records carry a configuration digest and runtime library versions. Figures read only JSONL records, discard stale outputs, facet architectures, state seed sample sizes, and keep central aggregation separate from sweep records.
