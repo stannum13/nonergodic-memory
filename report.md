@@ -91,6 +91,19 @@ The generator was extended to three and four sources using distinct emission per
 
 The decline is monotonic and the registered prediction is supported. Training retains substantial posterior-regression advantage at every count. Intended trained component-erasure damage rises from 0.053/0.115 at two sources to 0.195/0.356 at four sources for GRU/Transformer, but untrained damage at four sources is 0.266/0.324. Thus, larger identity spaces amplify probe-defined sensitivity without making it uniquely training-induced. The sweep took 136.5 seconds on CPU.
 
+## Model-width sweep
+
+Widths 8, 16, 32, and 64 were tested at fixed two-source data and depth two. The registered prediction was that trained recovery would saturate while relative seed variability of independent-erasure damage decreased.
+
+| model | metric | width 8 | 16 | 32 | 64 |
+|---|---|---:|---:|---:|---:|
+| GRU | trained component posterior R² | 0.936 | 0.964 | 0.984 | 0.990 |
+| GRU | untrained component posterior R² | 0.693 | 0.778 | 0.831 | 0.857 |
+| Transformer | trained component posterior R² | 0.831 | 0.922 | 0.936 | 0.918 |
+| Transformer | untrained component posterior R² | 0.136 | 0.434 | 0.636 | 0.794 |
+
+GRU recovery saturates; Transformer recovery peaks at width 32. The training advantage shrinks with width because untrained random features improve more rapidly. Component-erasure damage CV is 0.78/0.95/0.62/0.77 for GRU and 0.48/0.47/0.74/0.71 for Transformer, so the registered stability prediction is falsified. The same nonmonotonicity appears for state erasure. The sweep took 147.6 seconds on CPU.
+
 ## Negative results and limitations
 
 - Untrained networks are surprisingly decodable: recent-token features alone expose much of component and state information. Classification accuracy without the untrained and shuffled controls would overstate the result.
@@ -99,9 +112,9 @@ The decline is monotonic and the registered prediction is supported. Training re
 - Final-layer erasure barely changes GRU NLL, and only Transformer component erasure produces a clearly nontrivial mean NLL increase. Decoder damage does not imply equivalent behavioral necessity.
 - Three seeds quantify run variability but are insufficient for strong population-level inference; no p-values are reported.
 - The simple state-emission HMMs do not recreate Mess3’s fractal reachable-state geometry. PCA separation is not evidence for telescoping cones.
-- The central result still covers only overlap 0.35, two components, length 32, width 32, and final-layer intervention. The exploratory overlap, length, and component-count sweeps each change one variable at smaller fixed training compute; width and layer depth remain follow-ups.
+- The central result still covers only overlap 0.35, two components, length 32, width 32, and final-layer intervention. The exploratory overlap, length, component-count, and width sweeps each change one variable at smaller fixed training compute; layer depth remains the final follow-up.
 - Erasure is based on a single linear probe fit. Iterative nullspace projection or nonlinear adversaries could find residual information not measured here.
 
 ## Reproducibility
 
-The checked-in central run used CPU only. In the observed environment, six training runs took about 39 seconds, cached-checkpoint reproduction analysis 14.1 seconds, and the three-split intervention analysis 17.4 seconds. The complete overlap, length, and component-count sweeps took 151.7, 146.5, and 136.5 seconds. `make smoke` runs the complete one-seed pipeline. `make train`, `make reproduce`, `make extension`, `make figures`, `make sweep-overlap`, `make sweep-length`, and `make sweep-components` regenerate the artifact. Checkpoints are validated against the full requested configuration, model, and seed. Partial CLI reruns atomically replace only matching result cells. Records carry a configuration digest and runtime library versions. Figures read only JSONL records, discard stale outputs, facet architectures, state seed sample sizes, and keep central aggregation separate from sweep records.
+The checked-in central run used CPU only. In the observed environment, six training runs took about 39 seconds, cached-checkpoint reproduction analysis 14.1 seconds, and the three-split intervention analysis 17.4 seconds. The complete overlap, length, component-count, and width sweeps took 151.7, 146.5, 136.5, and 147.6 seconds. `make smoke` runs the complete one-seed pipeline. `make train`, `make reproduce`, `make extension`, `make figures`, and the four `make sweep-*` commands regenerate the artifact. Checkpoints are validated against the full requested configuration, model, and seed. Partial CLI reruns atomically replace only matching result cells. Records carry a configuration digest and runtime library versions. Figures read only JSONL records, discard stale outputs, facet architectures, state seed sample sizes, and keep central aggregation separate from sweep records.

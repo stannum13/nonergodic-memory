@@ -109,6 +109,7 @@ def main() -> None:
                             "overlap": float(config["data"]["overlap"]),
                             "sequence_length": int(config["data"]["sequence_length"]),
                             "components": int(config["data"].get("components", 2)),
+                            "model_width": int(config["model"]["width"]),
                             "training_condition": condition,
                             "target": target,
                             "control": control,
