@@ -1,6 +1,9 @@
 from pathlib import Path
+import json
+import pytest
 
-from nonergodic_memory.experiment import train_one
+from nonergodic_memory.experiment import replace_jsonl_runs, train_one, validate_checkpoint
+from nonergodic_memory.checkpoints import checkpoint_set_matches
 
 
 def tiny_config() -> dict:
@@ -24,3 +27,45 @@ def test_training_reduces_loss(tmp_path: Path) -> None:
     assert result["train_nll"] < result["initial_train_nll"]
     assert result["device"] == "cpu"
     assert (tmp_path / "gru_seed3.pt").exists()
+    assert checkpoint_set_matches(tiny_config(), tmp_path, ["gru"], [3])
+    changed = tiny_config()
+    changed["data"]["overlap"] = 0.9
+    assert not checkpoint_set_matches(changed, tmp_path, ["gru"], [3])
+
+
+def test_partial_result_update_preserves_other_runs(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    existing = [
+        {"config": "central", "config_sha256": "same", "model": "gru", "seed": 0, "value": "old"},
+        {"config": "central", "config_sha256": "same", "model": "gru", "seed": 1, "value": "keep"},
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in existing))
+    replace_jsonl_runs(
+        path,
+        [{"config": "central", "config_sha256": "same", "model": "gru", "seed": 0, "value": "new"}],
+        "central",
+        ["gru"],
+        [0],
+    )
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert {(row["seed"], row["value"]) for row in rows} == {(0, "new"), (1, "keep")}
+
+
+def test_changed_config_digest_purges_all_old_same_name_cells(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    old = [
+        {"config": "central", "config_sha256": "old", "model": "gru", "seed": seed}
+        for seed in (0, 1)
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in old))
+    replacement = {"config": "central", "config_sha256": "new", "model": "gru", "seed": 0}
+    replace_jsonl_runs(path, [replacement], "central", ["gru"], [0])
+    assert [json.loads(line) for line in path.read_text().splitlines()] == [replacement]
+
+
+def test_checkpoint_validation_rejects_stale_config() -> None:
+    payload = {"config": tiny_config(), "model_name": "gru", "seed": 2}
+    stale = tiny_config()
+    stale["model"]["width"] = 99
+    with pytest.raises(ValueError, match="configuration"):
+        validate_checkpoint(payload, stale, "gru", 2)

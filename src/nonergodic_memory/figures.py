@@ -14,9 +14,20 @@ import numpy as np
 
 def _load_records(results_dir: Path) -> list[dict]:
     records: list[dict] = []
-    for path in sorted(results_dir.glob("*.jsonl")):
+    paths = sorted(results_dir.glob("*.jsonl"))
+    central_paths = [path for path in paths if not path.name.startswith("smoke_")]
+    if central_paths:
+        paths = central_paths
+    for path in paths:
         with path.open(encoding="utf-8") as handle:
             records.extend(json.loads(line) for line in handle if line.strip())
+    digests_by_name: dict[str, set[str]] = {}
+    for record in records:
+        if "config" in record and "config_sha256" in record:
+            digests_by_name.setdefault(record["config"], set()).add(record["config_sha256"])
+    mixed = {name: digests for name, digests in digests_by_name.items() if len(digests) > 1}
+    if mixed:
+        raise ValueError(f"mixed config digests for the same config name: {mixed}")
     return records
 
 
@@ -31,10 +42,16 @@ def _mean_or_nan(values: list[float]) -> float:
     return float(np.mean(values)) if values else float("nan")
 
 
+def _std_or_zero(values: list[float]) -> float:
+    return float(np.std(values)) if values else 0.0
+
+
 def generate_figures(results_dir: str | Path = "results", output_dir: str | Path = "figures") -> list[Path]:
     records = _load_records(Path(results_dir))
     destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
+    for name in ("training.png", "probes.png", "pca.png", "intervention.png"):
+        (destination / name).unlink(missing_ok=True)
     created: list[Path] = []
 
     training = [record for record in records if record.get("record_type") == "training"]
@@ -60,18 +77,24 @@ def generate_figures(results_dir: str | Path = "results", output_dir: str | Path
             ("untrained", "none", "untrained"),
             ("trained", "shuffled_labels", "shuffled labels"),
         ]
-        fig, axis = plt.subplots(figsize=(8.0, 3.8))
-        x = np.arange(len(metrics))
-        width = 0.24
-        for group_index, (condition, control, label) in enumerate(groups):
-            subset = [r for r in probes if r["training_condition"] == condition and r["control"] == control]
-            values = [np.mean([r[m] for r in subset]) if subset else np.nan for m in metrics]
-            errors = [np.std([r[m] for r in subset]) if subset else 0 for m in metrics]
-            axis.bar(x + (group_index - 1) * width, values, width, yerr=errors, capsize=3, label=label)
-        axis.axhline(0, color="black", linewidth=0.7)
-        axis.set_xticks(x, labels)
-        axis.set_title("Held-out linear probes (mean ± seed SD)")
-        axis.legend(frameon=False, ncol=3)
+        models = sorted({record["model"] for record in probes})
+        fig, axes = plt.subplots(len(models), 1, figsize=(8.0, 3.4 * len(models)), squeeze=False)
+        for axis, model in zip(axes[:, 0], models):
+            model_records = [record for record in probes if record["model"] == model]
+            x = np.arange(len(metrics))
+            width = 0.24
+            for group_index, (condition, control, label) in enumerate(groups):
+                subset = [r for r in model_records if r["training_condition"] == condition and r["control"] == control]
+                values = [_mean_or_nan([r[m] for r in subset]) for m in metrics]
+                errors = [_std_or_zero([r[m] for r in subset]) for m in metrics]
+                axis.bar(x + (group_index - 1) * width, values, width, yerr=errors, capsize=3, label=label)
+            seed_count = len({record["seed"] for record in model_records})
+            axis.axhline(0, color="black", linewidth=0.7)
+            axis.set_xticks(x, labels)
+            axis.set_title(f"{model}: mean ± seed SD (n={seed_count})")
+            axis.legend(frameon=False, ncol=3)
+        configs = ",".join(sorted({r.get("config", "unspecified") for r in probes}))
+        fig.suptitle(f"Held-out linear probes; config={configs}")
         created.append(_save(fig, destination / "probes.png"))
 
     pca = [record for record in records if record.get("record_type") == "pca"]
@@ -94,17 +117,25 @@ def generate_figures(results_dir: str | Path = "results", output_dir: str | Path
     ]
     if intervention:
         categories = [(target, control) for target in ("component", "state") for control in ("learned", "norm_matched_random")]
-        comp = [_mean_or_nan([r["delta_component_accuracy"] for r in intervention if (r["target"], r["control"]) == category]) for category in categories]
-        state = [_mean_or_nan([r["delta_conditional_state_accuracy"] for r in intervention if (r["target"], r["control"]) == category]) for category in categories]
-        fig, axis = plt.subplots(figsize=(7.2, 3.8))
-        x = np.arange(len(categories))
-        axis.bar(x - 0.18, comp, 0.36, label="component accuracy", color="#4477AA")
-        axis.bar(x + 0.18, state, 0.36, label="state | component accuracy", color="#EE6677")
-        axis.axhline(0, color="black", linewidth=0.7)
-        axis.set_xticks(x, [f"{t}\n{c.replace('_', ' ')}" for t, c in categories])
-        axis.set_ylabel("post − pre accuracy")
-        axis.set_title("Selective causal damage (mean across models and seeds)")
-        axis.legend(frameon=False)
+        models = sorted({record["model"] for record in intervention})
+        fig, axes = plt.subplots(len(models), 1, figsize=(7.2, 3.5 * len(models)), squeeze=False)
+        for axis, model in zip(axes[:, 0], models):
+            model_records = [record for record in intervention if record["model"] == model]
+            comp = [_mean_or_nan([r["delta_component_accuracy"] for r in model_records if (r["target"], r["control"]) == category]) for category in categories]
+            state = [_mean_or_nan([r["delta_conditional_state_accuracy"] for r in model_records if (r["target"], r["control"]) == category]) for category in categories]
+            comp_error = [_std_or_zero([r["delta_component_accuracy"] for r in model_records if (r["target"], r["control"]) == category]) for category in categories]
+            state_error = [_std_or_zero([r["delta_conditional_state_accuracy"] for r in model_records if (r["target"], r["control"]) == category]) for category in categories]
+            x = np.arange(len(categories))
+            axis.bar(x - 0.18, comp, 0.36, yerr=comp_error, capsize=3, label="component accuracy", color="#4477AA")
+            axis.bar(x + 0.18, state, 0.36, yerr=state_error, capsize=3, label="state | component accuracy", color="#EE6677")
+            axis.axhline(0, color="black", linewidth=0.7)
+            axis.set_xticks(x, [f"{t}\n{c.replace('_', ' ')}" for t, c in categories])
+            axis.set_ylabel("post − pre accuracy")
+            seed_count = len({record["seed"] for record in model_records})
+            axis.set_title(f"{model}: mean ± seed SD (n={seed_count})")
+            axis.legend(frameon=False)
+        configs = ",".join(sorted({r.get("config", "unspecified") for r in intervention}))
+        fig.suptitle(f"Selective causal damage; config={configs}")
         created.append(_save(fig, destination / "intervention.png"))
     return created
 

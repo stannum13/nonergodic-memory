@@ -4,8 +4,15 @@
 from __future__ import annotations
 
 import argparse
+from pathlib import Path
 
-from nonergodic_memory.experiment import load_config, train_one, write_jsonl
+from nonergodic_memory.experiment import (
+    config_digest,
+    load_config,
+    replace_jsonl_runs,
+    runtime_provenance,
+    train_one,
+)
 
 
 def parse_args() -> argparse.Namespace:
@@ -21,15 +28,18 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
+    config_name = Path(args.config).stem
     records = []
     for seed in args.seeds:
         for model_name in args.models:
             record, _ = train_one(config, model_name, seed, args.output_dir)
+            record["config"] = config_name
+            record["config_sha256"] = config_digest(config)
+            record.update(runtime_provenance())
             records.append(record)
             print(f"{model_name} seed={seed} test_nll={record['test_nll']:.4f}")
-    write_jsonl(args.results, records)
+    replace_jsonl_runs(args.results, records, config_name, args.models, args.seeds)
 
 
 if __name__ == "__main__":
     main()
-

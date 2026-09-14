@@ -6,20 +6,20 @@ Small next-token predictors trained on a fixed-component mixture will expose lin
 
 ## Last experiment
 
-End-to-end smoke configuration (`configs/smoke.yaml`), seed 0, on CPU. Two 2-state/four-token HMMs at emission overlap 0.35 generated 96 training sequences of length 12. Width-16, one-layer GRU and Transformer models trained for eight epochs. Probes used 64 independent fit sequences and 48 held-out sequences; interventions used a second disjoint pair of datasets.
+Central configuration (`configs/reproduce.yaml`), seeds 0/1/2, on CPU. Two 2-state/four-token HMMs at emission overlap 0.35 generated 1,024 training sequences of length 32. Width-32, two-layer GRU and Transformer models trained for 20 epochs. Probes used 512 independent fit sequences and 256 held-out sequences; interventions used three disjoint direction-fit, evaluator-fit, and test datasets.
 
 ## Result
 
-- Held-out NLL: GRU 1.2087, Transformer 1.2313, exact Bayes approximately 1.175.
-- Trained component/state accuracies: GRU 0.848/0.822; Transformer 0.826/0.790.
-- Untrained component/state accuracies remained high: GRU 0.830/0.801; Transformer 0.703/0.797. Shuffled-label controls were near chance and posterior R² values were negative.
-- Learned component erasure changed component/state accuracies by −0.470/−0.062 (GRU) and −0.451/−0.062 (Transformer).
-- Learned state erasure changed component/state accuracies by −0.055/−0.210 (GRU) and −0.044/−0.167 (Transformer). Norm-matched random changes were much smaller in this seed.
+- Mean ± seed SD held-out NLL: GRU 1.2084 ± 0.0119, Transformer 1.2383 ± 0.0141, exact Bayes 1.2039 ± 0.0112.
+- Trained component/full-conditional-state posterior R²: GRU 0.9901 ± 0.0021 / 0.9632 ± 0.0035; Transformer 0.9344 ± 0.0041 / 0.7439 ± 0.0209. Untrained values were 0.8265/0.9762 and 0.6452/0.7325 respectively. Shuffled-label R² was near zero.
+- With independent evaluator probes, learned component erasure changed component/state accuracy by −0.0309 ± 0.0341 / −0.0014 ± 0.0036 (GRU) and −0.4097 ± 0.2948 / −0.0079 ± 0.0028 (Transformer).
+- Learned state erasure changed component/state accuracy by −0.0081 ± 0.0022 / −0.1113 ± 0.0835 (GRU) and −0.0023 ± 0.0020 / −0.1686 ± 0.0388 (Transformer). Norm-matched controls were near zero, but intended damage varied substantially across seeds.
+- Predictive damage remained small except Transformer component erasure at mean ΔNLL +0.0143 ± 0.0064. Untrained networks also displayed selective erasure effects.
 
 ## Interpretation
 
-The one-seed smoke run supports selective linear-subspace damage but is not confirmatory. Decodability is clearly not unique to training: finite context features are recoverable from random recurrent and attention features. The relevant reproduction statistic is therefore the trained-versus-untrained posterior-regression improvement, not trained accuracy alone. Causal effects must be summarized across seeds and compared directly with norm-matched controls.
+The central run reproduces training-enhanced linear recovery of component belief. It does not reproduce a training-specific conditional-state result: random GRU features perform better and Transformer improvement is marginal. Independent-evaluator erasure reveals selective organization on average, especially in the Transformer, but high seed variance and strong untrained effects falsify the stronger hypothesis of stable, training-created selective subspaces. Output behavior is mostly robust to final-layer erasure.
 
 ## Next smallest experiment
 
-Run the central configuration for seeds 0, 1, and 2, regenerate all figures from the central JSONL files, and quantify means plus seed standard deviations. If selective damage survives, the first follow-up sweep should increase source overlap because it directly weakens component evidence without changing model size.
+Sweep source overlap through 0.0, 0.35, 0.7, and 0.9 at fixed width/length. The falsifiable prediction is that trained-over-untrained component-posterior R² and component-erasure selectivity shrink as sources become observationally indistinguishable. Only after that should sequence length, component count, width, and intervention depth be varied.
