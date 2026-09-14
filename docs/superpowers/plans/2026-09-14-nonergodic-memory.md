@@ -1,6 +1,6 @@
 # Nonergodic Memory Research Artifact Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [x]`) syntax for tracking.
 
 **Goal:** Build a CPU-reproducible experiment that compares GRU and decoder-only Transformer representations with exact Bayesian filtering in finite HMM mixtures, then causally erases learned component and conditional-state subspaces with controls.
 
@@ -32,11 +32,11 @@
 - Produces: `HMM`, `HMMMixture.sample(n_sequences, length, seed)`, `HMMMixture.filter(tokens)`, and `make_two_source_mixture(overlap)`.
 - `filter` returns arrays `component_posterior [N,T,K]`, `state_posterior [N,T,K,S]`, and `predictive [N,T,V]`.
 
-- [ ] **Step 1: Write tests for normalized analytic outputs and a hand-computed one-state mixture.**
-- [ ] **Step 2: Run `pytest tests/test_hmm.py -q` and confirm failure because the package is absent.**
-- [ ] **Step 3: Implement validated HMM parameters, seeded sampling, log-stable mixture filtering, and overlap-controlled sources.**
-- [ ] **Step 4: Run `pytest tests/test_hmm.py -q` and confirm all analytic tests pass.**
-- [ ] **Step 5: Commit the exact-data slice.**
+- [x] **Step 1: Write tests for normalized analytic outputs and a hand-computed one-state mixture.**
+- [x] **Step 2: Run `pytest tests/test_hmm.py -q` and confirm failure because the package is absent.**
+- [x] **Step 3: Implement validated HMM parameters, seeded sampling, log-stable mixture filtering, and overlap-controlled sources.**
+- [x] **Step 4: Run `pytest tests/test_hmm.py -q` and confirm all analytic tests pass.**
+- [x] **Step 5: Commit the exact-data slice.**
 
 ### Task 2: Reproducible neural training
 
@@ -54,11 +54,11 @@
 - Produces: `GRUPredictor`, `TransformerPredictor`, `build_model`, `train_one`, `evaluate_predictions`, and checkpoint dictionaries containing config plus weights.
 - Both models return `(logits, final_hidden)` for token prefixes.
 
-- [ ] **Step 1: Write shape, causal-prefix invariance, reproducibility, and loss-improvement tests.**
-- [ ] **Step 2: Run the focused tests and confirm missing-interface failures.**
-- [ ] **Step 3: Implement deterministic CPU model construction, next-token batches, evaluation, checkpointing, and JSONL output.**
-- [ ] **Step 4: Run focused tests and the complete suite.**
-- [ ] **Step 5: Commit the training slice.**
+- [x] **Step 1: Write shape, causal-prefix invariance, reproducibility, and loss-improvement tests.**
+- [x] **Step 2: Run the focused tests and confirm missing-interface failures.**
+- [x] **Step 3: Implement deterministic CPU model construction, next-token batches, evaluation, checkpointing, and JSONL output.**
+- [x] **Step 4: Run focused tests and the complete suite.**
+- [x] **Step 5: Commit the training slice.**
 
 ### Task 3: Quantitative representation probes
 
@@ -71,11 +71,11 @@
 - Produces: flattened held-out activation tables, train/test-split linear classification, Bayesian-posterior regression, shuffled-label controls, and PCA coordinates.
 - Appends one tidy record per seed/model/control to `results/reproduction.jsonl`.
 
-- [ ] **Step 1: Write failing tests for leak-free splitting, shuffled controls, metric bounds, and PCA shapes.**
-- [ ] **Step 2: Run `pytest tests/test_analysis.py -q` and verify expected failures.**
-- [ ] **Step 3: Implement probe fitting only on probe-train sequences and scoring only on held-out probe-test sequences.**
-- [ ] **Step 4: Run analysis tests and the complete suite.**
-- [ ] **Step 5: Run the smoke reproduction and commit raw records plus probe code.**
+- [x] **Step 1: Write failing tests for leak-free splitting, shuffled controls, metric bounds, and PCA shapes.**
+- [x] **Step 2: Run `pytest tests/test_analysis.py -q` and verify expected failures.**
+- [x] **Step 3: Implement probe fitting only on probe-train sequences and scoring only on held-out probe-test sequences.**
+- [x] **Step 4: Run analysis tests and the complete suite.**
+- [x] **Step 5: Run the smoke reproduction and commit raw records plus probe code.**
 
 ### Task 4: Causal erasure with matched controls
 
@@ -88,11 +88,11 @@
 - Produces: orthonormal row-space bases from learned probes, learned/random/norm-matched activation erasure, and pre/post metrics for NLL, exact-predictive KL, component accuracy, and conditional-state accuracy.
 - Appends one record per target/control/seed/model to `results/extension.jsonl`.
 
-- [ ] **Step 1: Write failing tests proving exact removal, orthogonal preservation, rank matching, and norm matching.**
-- [ ] **Step 2: Run `pytest tests/test_intervention.py -q` and verify expected failures.**
-- [ ] **Step 3: Implement projection and evaluation using probes trained on disjoint sequences from the intervention test set.**
-- [ ] **Step 4: Run intervention tests and the complete suite.**
-- [ ] **Step 5: Run the smoke extension and commit raw records plus intervention code.**
+- [x] **Step 1: Write failing tests proving exact removal, orthogonal preservation, rank matching, and norm matching.**
+- [x] **Step 2: Run `pytest tests/test_intervention.py -q` and verify expected failures.**
+- [x] **Step 3: Implement projection and evaluation using probes trained on disjoint sequences from the intervention test set.**
+- [x] **Step 4: Run intervention tests and the complete suite.**
+- [x] **Step 5: Run the smoke extension and commit raw records plus intervention code.**
 
 ### Task 5: Reproducible commands, figures, and report
 
@@ -114,12 +114,12 @@
 - Produces working `make smoke`, `make train`, `make reproduce`, `make extension`, and `make figures` commands.
 - Figures are derived solely from JSONL files and report captions identify sample sizes and uncertainty aggregation.
 
-- [ ] **Step 1: Write CLI/help and figure-from-fixture tests, then run them to verify failure.**
-- [ ] **Step 2: Implement orchestration scripts, aggregation plots, README quick explanation, paper notes, state ledger, and technical report.**
-- [ ] **Step 3: Run `make smoke` from a clean result target and inspect every emitted JSON record and figure.**
-- [ ] **Step 4: Run `pytest -q`, `make train`, `make reproduce`, `make extension`, and `make figures`; document actual CPU runtime and results.**
-- [ ] **Step 5: Self-review every mission, control, command, and done criterion; record limitations and negative findings without overstating evidence.**
-- [ ] **Step 6: Commit the final reproducible artifact.**
+- [x] **Step 1: Write CLI/help and figure-from-fixture tests, then run them to verify failure.**
+- [x] **Step 2: Implement orchestration scripts, aggregation plots, README quick explanation, paper notes, state ledger, and technical report.**
+- [x] **Step 3: Run `make smoke` from a clean result target and inspect every emitted JSON record and figure.**
+- [x] **Step 4: Run `pytest -q`, `make train`, `make reproduce`, `make extension`, and `make figures`; document actual CPU runtime and results.**
+- [x] **Step 5: Self-review every mission, control, command, and done criterion; record limitations and negative findings without overstating evidence.**
+- [x] **Step 6: Commit the final reproducible artifact.**
 
 ## Plan Self-Review
 

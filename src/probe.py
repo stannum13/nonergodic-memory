@@ -8,7 +8,14 @@ from pathlib import Path
 
 from nonergodic_memory.analysis import collect_activations, fit_probes, pca_records
 from nonergodic_memory.data.hmm import make_two_source_mixture
-from nonergodic_memory.experiment import load_checkpoint, load_config, set_seed, write_jsonl
+from nonergodic_memory.experiment import (
+    config_digest,
+    load_checkpoint,
+    load_config,
+    replace_jsonl_runs,
+    runtime_provenance,
+    set_seed,
+)
 from nonergodic_memory.models.sequence import build_model
 
 
@@ -26,6 +33,9 @@ def main() -> None:
     args = parse_args()
     config = load_config(args.config)
     mixture = make_two_source_mixture(float(config["data"]["overlap"]))
+    config_name = Path(args.config).stem
+    config_sha256 = config_digest(config)
+    provenance = runtime_provenance()
     records: list[dict] = []
     for seed in args.seeds:
         train_batch = mixture.sample(
@@ -37,7 +47,12 @@ def main() -> None:
         for model_name in args.models:
             for condition in ("trained", "untrained"):
                 if condition == "trained":
-                    _, model = load_checkpoint(Path(args.checkpoint_dir) / f"{model_name}_seed{seed}.pt")
+                    _, model = load_checkpoint(
+                        Path(args.checkpoint_dir) / f"{model_name}_seed{seed}.pt",
+                        config,
+                        model_name,
+                        seed,
+                    )
                 else:
                     set_seed(seed)
                     model = build_model(model_name, mixture.vocab_size, config["model"])
@@ -50,9 +65,13 @@ def main() -> None:
                         "model": model_name,
                         "seed": seed,
                         "device": "cpu",
+                        "config": config_name,
+                        "config_sha256": config_sha256,
                         "training_condition": condition,
                         "control": "none",
+                        "state_posterior_target": "all_component_conditionals",
                         **bundle.metrics,
+                        **provenance,
                     }
                 )
                 shuffled = fit_probes(train_table, test_table, seed, shuffle_labels=True)
@@ -62,9 +81,13 @@ def main() -> None:
                         "model": model_name,
                         "seed": seed,
                         "device": "cpu",
+                        "config": config_name,
+                        "config_sha256": config_sha256,
                         "training_condition": condition,
                         "control": "shuffled_labels",
+                        "state_posterior_target": "all_component_conditionals",
                         **shuffled.metrics,
+                        **provenance,
                     }
                 )
                 if condition == "trained":
@@ -76,9 +99,13 @@ def main() -> None:
                                 "model": model_name,
                                 "seed": seed,
                                 "training_condition": condition,
+                                "device": "cpu",
+                                "config": config_name,
+                                "config_sha256": config_sha256,
                                 "explained_variance_pc1": variance[0],
                                 "explained_variance_pc2": variance[1],
                                 **point,
+                                **provenance,
                             }
                         )
                 print(
@@ -86,7 +113,7 @@ def main() -> None:
                     f"component={bundle.metrics['component_accuracy']:.3f} "
                     f"state={bundle.metrics['conditional_state_accuracy']:.3f}"
                 )
-    write_jsonl(args.results, records)
+    replace_jsonl_runs(args.results, records, config_name, args.models, args.seeds)
 
 
 if __name__ == "__main__":

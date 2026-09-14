@@ -125,23 +125,38 @@ class HMMMixture:
         predictive = np.zeros((n_sequences, length, self.vocab_size), dtype=np.float64)
 
         for sequence_index in range(n_sequences):
-            joint = [self.weights[c] * hmm.initial.copy() for c, hmm in enumerate(self.components)]
+            conditional_states = [hmm.initial.copy() for hmm in self.components]
+            log_component_weights = np.log(self.weights)
             for position, token in enumerate(observations[sequence_index]):
                 if position:
-                    joint = [mass @ hmm.transition for mass, hmm in zip(joint, self.components)]
-                joint = [mass * hmm.emission[:, token] for mass, hmm in zip(joint, self.components)]
-                evidence = sum(float(mass.sum()) for mass in joint)
-                if evidence <= 0:
+                    conditional_states = [
+                        state @ hmm.transition
+                        for state, hmm in zip(conditional_states, self.components)
+                    ]
+                for component_index, hmm in enumerate(self.components):
+                    emitted = conditional_states[component_index] * hmm.emission[:, token]
+                    likelihood = float(emitted.sum())
+                    if likelihood > 0:
+                        conditional_states[component_index] = emitted / likelihood
+                        log_component_weights[component_index] += np.log(likelihood)
+                    else:
+                        log_component_weights[component_index] = -np.inf
+                maximum = float(np.max(log_component_weights))
+                if not np.isfinite(maximum):
                     raise ValueError("observed sequence has zero probability under the mixture")
-                joint = [mass / evidence for mass in joint]
-                for component_index, (mass, hmm) in enumerate(zip(joint, self.components)):
-                    component_mass = float(mass.sum())
-                    component_posterior[sequence_index, position, component_index] = component_mass
+                relative_weights = np.exp(log_component_weights - maximum)
+                posterior_weights = relative_weights / relative_weights.sum()
+                component_posterior[sequence_index, position] = posterior_weights
+                for component_index, (state, hmm) in enumerate(
+                    zip(conditional_states, self.components)
+                ):
                     state_posterior[
                         sequence_index, position, component_index, : hmm.n_states
-                    ] = mass / component_mass if component_mass > 0 else hmm.initial
-                    next_state = mass @ hmm.transition
-                    predictive[sequence_index, position] += next_state @ hmm.emission
+                    ] = state
+                    next_state = state @ hmm.transition
+                    predictive[sequence_index, position] += (
+                        posterior_weights[component_index] * (next_state @ hmm.emission)
+                    )
 
         return FilterResult(component_posterior, state_posterior, predictive)
 
@@ -159,4 +174,3 @@ def make_two_source_mixture(overlap: float = 0.35) -> HMMMixture:
         [HMM(transition, first, initial), HMM(transition, second, initial)],
         [0.5, 0.5],
     )
-

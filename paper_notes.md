@@ -18,9 +18,8 @@ The reported experiment uses two three-state Mess3 sources and a four-layer, wid
 
 ## Deliberate extension
 
-The article establishes correlational linear recoverability. This artifact asks a narrower causal question: does projecting out a probe-defined component or conditional-state subspace selectively damage the corresponding held-out decoder while preserving the other one? Because a low-rank projection can cause generic distribution shift, random subspaces and per-example norm-matched random perturbations are required controls. Shuffled-label directions test probe-fitting artifacts.
+The article establishes correlational linear recoverability. This artifact asks a narrower causal question: does projecting out a probe-defined component or conditional-state subspace selectively damage an independently fitted held-out decoder while preserving the other one? Direction fitting, evaluator fitting, and intervention testing use three disjoint sequence sets. Because a low-rank projection can cause generic distribution shift, random subspaces and per-example norm-matched random perturbations are required controls. Shuffled-label directions test probe-fitting artifacts.
 
 ## Important non-equivalences
 
 The local HMMs are conventional state-emission HMMs rather than the article’s edge-emitting Mess3 construction. PCA of raw activations is not the paper’s regression into weighted belief coordinates. The intervention acts only at the final representation immediately before the output head. Consequently, the result is a compact conceptual reproduction and falsifiable extension, not a reconstruction of the authors’ exact training run.
-

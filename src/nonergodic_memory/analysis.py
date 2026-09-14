@@ -58,19 +58,15 @@ def collect_activations(
     exact = mixture.filter(batch.tokens[:, :-1])
     component_grid = np.repeat(batch.components[:, None], positions, axis=1)
     state_grid = batch.states[:, :-1]
-    true_state_posterior = np.stack(
-        [
-            exact.state_posterior[i, :, int(batch.components[i]), :]
-            for i in range(n_sequences)
-        ]
-    )
     return ActivationTable(
         hidden=hidden.numpy().reshape(-1, hidden.shape[-1]).astype(np.float64),
         logits=logits.numpy().reshape(-1, logits.shape[-1]).astype(np.float64),
         components=component_grid.reshape(-1).astype(np.int64),
         states=state_grid.reshape(-1).astype(np.int64),
         component_posterior=exact.component_posterior.reshape(-1, len(mixture.components)),
-        state_posterior=true_state_posterior.reshape(-1, mixture.max_states),
+        state_posterior=exact.state_posterior.reshape(
+            -1, len(mixture.components) * mixture.max_states
+        ),
         predictive=exact.predictive.reshape(-1, mixture.vocab_size),
         targets=batch.tokens[:, 1:].reshape(-1).astype(np.int64),
         sequence_ids=np.repeat(np.arange(n_sequences) + sequence_offset, positions).astype(np.int64),
@@ -94,6 +90,9 @@ def fit_probes(
     seed: int,
     shuffle_labels: bool = False,
 ) -> ProbeBundle:
+    overlap = np.intersect1d(np.unique(train.sequence_ids), np.unique(test.sequence_ids))
+    if overlap.size:
+        raise ValueError("probe train and test sequence IDs overlap")
     rng = np.random.default_rng(seed)
     component_labels = train.components.copy()
     state_labels = train.states.copy()

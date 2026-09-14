@@ -25,4 +25,4 @@ include = ["nonergodic_memory*"]
 [tool.pytest.ini_options]
 addopts = "-ra"
 testpaths = ["tests"]
-
+pythonpath = ["src"]

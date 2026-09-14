@@ -3,8 +3,9 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+import pytest
 
-from nonergodic_memory.figures import generate_figures
+from nonergodic_memory.figures import _load_records, generate_figures
 
 
 ROOT = Path(__file__).parents[1]
@@ -43,3 +44,34 @@ def test_figures_are_generated_only_from_jsonl(tmp_path: Path) -> None:
         "training.png", "probes.png", "pca.png", "intervention.png"
     }
     assert all(path.stat().st_size > 1000 for path in created)
+
+
+def test_central_results_take_precedence_over_smoke(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    results.mkdir()
+    (results / "smoke_training.jsonl").write_text(
+        json.dumps({"record_type": "training", "model": "smoke", "seed": 0, "test_nll": 9.0, "test_bayes_nll": 8.0}) + "\n"
+    )
+    (results / "training.jsonl").write_text(
+        json.dumps({"record_type": "training", "model": "central", "seed": 0, "test_nll": 1.0, "test_bayes_nll": 0.9}) + "\n"
+    )
+    records = _load_records(results)
+    assert [record["model"] for record in records] == ["central"]
+    output = tmp_path / "figures"
+    output.mkdir()
+    stale = output / "probes.png"
+    stale.write_bytes(b"stale")
+    generate_figures(results, output)
+    assert not stale.exists()
+
+
+def test_figures_reject_mixed_digests_for_same_config_name(tmp_path: Path) -> None:
+    results = tmp_path / "results"
+    results.mkdir()
+    rows = [
+        {"record_type": "training", "config": "central", "config_sha256": digest, "model": "gru", "seed": seed, "test_nll": 1.0, "test_bayes_nll": 0.9}
+        for digest, seed in (("old", 0), ("new", 1))
+    ]
+    (results / "training.jsonl").write_text("".join(json.dumps(row) + "\n" for row in rows))
+    with pytest.raises(ValueError, match="mixed config digests"):
+        generate_figures(results, tmp_path / "figures")

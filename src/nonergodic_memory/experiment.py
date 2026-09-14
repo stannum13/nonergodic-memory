@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import random
+import platform
 from pathlib import Path
 from typing import Iterable
 
@@ -47,6 +49,53 @@ def append_jsonl(path: str | Path, records: Iterable[dict]) -> None:
     with destination.open("a", encoding="utf-8") as handle:
         for record in records:
             handle.write(json.dumps(record, sort_keys=True) + "\n")
+
+
+def config_digest(config: dict) -> str:
+    encoded = json.dumps(config, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()[:16]
+
+
+def runtime_provenance() -> dict[str, str]:
+    return {
+        "python_version": platform.python_version(),
+        "numpy_version": np.__version__,
+        "torch_version": torch.__version__,
+    }
+
+
+def replace_jsonl_runs(
+    path: str | Path,
+    records: Iterable[dict],
+    config_name: str,
+    models: Iterable[str],
+    seeds: Iterable[int],
+) -> None:
+    """Atomically replace selected runs while retaining unrelated model/seed cells."""
+    destination = Path(path)
+    new_records = list(records)
+    digests = {record.get("config_sha256") for record in new_records}
+    if len(digests) != 1 or None in digests:
+        raise ValueError("replacement records must share one config_sha256")
+    new_digest = next(iter(digests))
+    model_set = set(models)
+    seed_set = set(seeds)
+    retained: list[dict] = []
+    if destination.exists():
+        with destination.open(encoding="utf-8") as handle:
+            for line in handle:
+                if not line.strip():
+                    continue
+                record = json.loads(line)
+                same_name = record.get("config") == config_name
+                incompatible_digest = same_name and record.get("config_sha256") != new_digest
+                selected = same_name and record.get("model") in model_set and record.get("seed") in seed_set
+                if not incompatible_digest and not selected:
+                    retained.append(record)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    write_jsonl(temporary, [*retained, *new_records])
+    temporary.replace(destination)
 
 
 def tensor_sequences(batch: SequenceBatch) -> tuple[Tensor, Tensor]:
@@ -106,6 +155,7 @@ def train_one(
     test_metrics = evaluate_predictions(model, test_batch, mixture)
     result = {
         "record_type": "training",
+        "training_condition": "trained",
         "model": model_name,
         "seed": seed,
         "device": "cpu",
@@ -127,11 +177,28 @@ def train_one(
     return result, model
 
 
-def load_checkpoint(path: str | Path) -> tuple[dict, nn.Module]:
+def validate_checkpoint(payload: dict, config: dict, model_name: str, seed: int) -> None:
+    if payload.get("config") != config:
+        raise ValueError("checkpoint configuration does not match requested configuration")
+    if payload.get("model_name") != model_name:
+        raise ValueError("checkpoint model does not match requested model")
+    if payload.get("seed") != seed:
+        raise ValueError("checkpoint seed does not match requested seed")
+
+
+def load_checkpoint(
+    path: str | Path,
+    expected_config: dict | None = None,
+    expected_model: str | None = None,
+    expected_seed: int | None = None,
+) -> tuple[dict, nn.Module]:
     payload = torch.load(path, map_location="cpu", weights_only=False)
+    if expected_config is not None:
+        if expected_model is None or expected_seed is None:
+            raise ValueError("expected model and seed are required with expected config")
+        validate_checkpoint(payload, expected_config, expected_model, expected_seed)
     mixture = make_two_source_mixture(float(payload["config"]["data"]["overlap"]))
     model = build_model(payload["model_name"], mixture.vocab_size, payload["config"]["model"])
     model.load_state_dict(payload["state_dict"])
     model.eval()
     return payload, model
-
