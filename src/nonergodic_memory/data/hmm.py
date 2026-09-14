@@ -161,16 +161,27 @@ class HMMMixture:
         return FilterResult(component_posterior, state_posterior, predictive)
 
 
-def make_two_source_mixture(overlap: float = 0.35) -> HMMMixture:
-    """Create two two-state sources; 0 is distinct and 1 is identical emission overlap."""
+def make_source_mixture(n_components: int = 2, overlap: float = 0.35) -> HMMMixture:
+    """Create 2–4 two-state sources; overlap 1 makes all emissions identical."""
     if not 0.0 <= overlap <= 1.0:
         raise ValueError("overlap must lie in [0, 1]")
+    if not 2 <= n_components <= 4:
+        raise ValueError("components must lie in [2, 4]")
     transition = np.array([[0.88, 0.12], [0.18, 0.82]])
     initial = np.array([0.55, 0.45])
     first = np.array([[0.72, 0.18, 0.06, 0.04], [0.10, 0.68, 0.12, 0.10]])
     distinct = np.array([[0.05, 0.05, 0.72, 0.18], [0.12, 0.08, 0.10, 0.70]])
-    second = overlap * first + (1.0 - overlap) * distinct
+    templates = [first, distinct, first[:, [1, 2, 3, 0]], first[:, [3, 0, 1, 2]]]
+    emissions = [first] + [
+        overlap * first + (1.0 - overlap) * templates[index]
+        for index in range(1, n_components)
+    ]
     return HMMMixture(
-        [HMM(transition, first, initial), HMM(transition, second, initial)],
-        [0.5, 0.5],
+        [HMM(transition, emission, initial) for emission in emissions],
+        np.full(n_components, 1.0 / n_components),
     )
+
+
+def make_two_source_mixture(overlap: float = 0.35) -> HMMMixture:
+    """Backward-compatible constructor for the central two-source experiment."""
+    return make_source_mixture(n_components=2, overlap=overlap)

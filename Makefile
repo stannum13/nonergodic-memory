@@ -1,4 +1,4 @@
-.PHONY: smoke train reproduce extension figures sweep-overlap sweep-length test clean-results
+.PHONY: smoke train reproduce extension figures sweep-overlap sweep-length sweep-components test clean-results
 
 PYTHON ?= python3
 export PYTHONPATH := src:$(PYTHONPATH)
@@ -23,6 +23,9 @@ sweep-overlap:
 
 sweep-length:
 	bash scripts/sweep_length.sh
+
+sweep-components:
+	bash scripts/sweep_components.sh
 
 test:
 	pytest -q

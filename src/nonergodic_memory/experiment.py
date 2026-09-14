@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import yaml
 from torch import Tensor, nn
 
-from .data.hmm import HMMMixture, SequenceBatch, make_two_source_mixture
+from .data.hmm import HMMMixture, SequenceBatch, make_source_mixture
 from .models.sequence import build_model
 
 
@@ -103,6 +103,13 @@ def tensor_sequences(batch: SequenceBatch) -> tuple[Tensor, Tensor]:
     return tokens[:, :-1], tokens[:, 1:]
 
 
+def mixture_from_config(config: dict) -> HMMMixture:
+    data = config["data"]
+    return make_source_mixture(
+        n_components=int(data.get("components", 2)), overlap=float(data["overlap"])
+    )
+
+
 @torch.no_grad()
 def evaluate_predictions(model: nn.Module, batch: SequenceBatch, mixture: HMMMixture) -> dict:
     model.eval()
@@ -127,7 +134,7 @@ def train_one(
 ) -> tuple[dict, nn.Module]:
     set_seed(seed)
     data_config = config["data"]
-    mixture = make_two_source_mixture(float(data_config["overlap"]))
+    mixture = mixture_from_config(config)
     train_batch = mixture.sample(
         int(data_config["train_sequences"]), int(data_config["sequence_length"]), seed + 101
     )
@@ -162,6 +169,7 @@ def train_one(
         "overlap": float(data_config["overlap"]),
         "sequence_length": int(data_config["sequence_length"]),
         "train_sequences": int(data_config["train_sequences"]),
+        "components": int(data_config.get("components", 2)),
         "initial_train_nll": initial["nll"],
         "train_nll": train_metrics["nll"],
         "test_nll": test_metrics["nll"],
@@ -197,7 +205,7 @@ def load_checkpoint(
         if expected_model is None or expected_seed is None:
             raise ValueError("expected model and seed are required with expected config")
         validate_checkpoint(payload, expected_config, expected_model, expected_seed)
-    mixture = make_two_source_mixture(float(payload["config"]["data"]["overlap"]))
+    mixture = mixture_from_config(payload["config"])
     model = build_model(payload["model_name"], mixture.vocab_size, payload["config"]["model"])
     model.load_state_dict(payload["state_dict"])
     model.eval()

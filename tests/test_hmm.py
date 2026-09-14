@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from itertools import product
 
-from nonergodic_memory.data.hmm import HMM, HMMMixture, make_two_source_mixture
+from nonergodic_memory.data.hmm import HMM, HMMMixture, make_source_mixture, make_two_source_mixture
 
 
 def test_one_state_mixture_matches_bayes_rule() -> None:
@@ -90,3 +90,19 @@ def test_log_domain_component_weights_recover_after_extreme_evidence_shift() -> 
     tokens = np.array([[0] * 5000 + [1] * 5000], dtype=np.int64)
     result = mixture.filter(tokens)
     np.testing.assert_allclose(result.component_posterior[0, -1], [0.5, 0.5], atol=1e-9)
+
+
+def test_general_mixture_supports_two_to_four_components() -> None:
+    for n_components in (2, 3, 4):
+        mixture = make_source_mixture(n_components=n_components, overlap=0.35)
+        batch = mixture.sample(40, 10, seed=20 + n_components)
+        exact = mixture.filter(batch.tokens)
+        assert len(mixture.components) == n_components
+        assert exact.component_posterior.shape == (40, 10, n_components)
+        assert set(batch.components) <= set(range(n_components))
+        np.testing.assert_allclose(exact.component_posterior.sum(-1), 1.0)
+
+
+def test_general_mixture_rejects_unsupported_component_count() -> None:
+    with pytest.raises(ValueError, match="components"):
+        make_source_mixture(n_components=5, overlap=0.35)

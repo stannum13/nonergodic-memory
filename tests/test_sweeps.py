@@ -1,7 +1,11 @@
 import json
 from pathlib import Path
 
-from nonergodic_memory.sweeps import generate_length_figure, generate_overlap_figure
+from nonergodic_memory.sweeps import (
+    generate_component_figure,
+    generate_length_figure,
+    generate_overlap_figure,
+)
 
 
 def test_overlap_figure_is_generated_from_raw_records(tmp_path: Path) -> None:
@@ -84,5 +88,41 @@ def test_length_figure_uses_sequence_length_axis(tmp_path: Path) -> None:
     path.write_text("".join(json.dumps(record) + "\n" for record in records))
     output = tmp_path / "length.png"
     generate_length_figure([path], output)
+    assert output.exists()
+    assert output.stat().st_size > 1000
+
+
+def test_component_figure_tracks_absolute_recovery(tmp_path: Path) -> None:
+    records = []
+    for components in (2, 3):
+        for condition in ("trained", "untrained"):
+            records.append(
+                {
+                    "record_type": "probe",
+                    "model": "gru",
+                    "seed": 0,
+                    "components": components,
+                    "training_condition": condition,
+                    "control": "none",
+                    "component_accuracy": 0.8,
+                    "component_posterior_r2": 0.7,
+                }
+            )
+        records.append(
+            {
+                "record_type": "intervention",
+                "model": "gru",
+                "seed": 0,
+                "components": components,
+                "training_condition": "trained",
+                "control": "learned",
+                "target": "component",
+                "delta_component_accuracy": -0.2,
+            }
+        )
+    path = tmp_path / "components.jsonl"
+    path.write_text("".join(json.dumps(record) + "\n" for record in records))
+    output = tmp_path / "components.png"
+    generate_component_figure([path], output)
     assert output.exists()
     assert output.stat().st_size > 1000

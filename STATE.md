@@ -6,19 +6,18 @@ Small next-token predictors trained on a fixed-component mixture will expose lin
 
 ## Last experiment
 
-Sequence-length sweep at 8, 16, 32, and 64 tokens, seeds 0/1/2, on CPU. Each cell fixed source overlap 0.35, width/depth 32/2, 512 training sequences, 12 epochs, and three disjoint intervention datasets. The prediction was registered after the overlap sweep and before this run.
+Component-count sweep at 2, 3, and 4 sources, seeds 0/1/2, on CPU. Each cell fixed overlap 0.35, length 32, width/depth 32/2, 512 training sequences, 12 epochs, and three disjoint intervention datasets. The generalized generator preserves the original two-source emissions and adds distinct emission permutations for sources three and four.
 
 ## Result
 
-- GRU trained-minus-untrained component-posterior R² gain across lengths 8/16/32/64: 0.040/0.099/0.153/0.181. Transformer: 0.035/0.138/0.301/0.442.
-- Full conditional-state R² gain remained small: GRU −0.010/−0.013/−0.009/−0.006; Transformer −0.011/−0.001/0.027/0.036.
-- Intended component-erasure accuracy damage was GRU 0.046/0.012/0.053/0.108 and Transformer 0.010/0.180/0.115/0.462. The length-64 Transformer SD was 0.309, so the apparent causal increase is much less stable than the regression gain.
-- Intended state-erasure damage was GRU 0.051/0.028/0.040/0.024 and Transformer 0.045/0.053/0.174/0.195. Every value is a mean across three seeds; seed SDs are plotted in `figures/sweep_length.png`.
+- Trained component accuracy for 2/3/4 sources: GRU 0.949/0.836/0.759; Transformer 0.944/0.807/0.729.
+- Trained component-posterior R²: GRU 0.984/0.931/0.877; Transformer 0.936/0.762/0.630. Untrained R² was 0.831/0.698/0.616 and 0.636/0.415/0.360 respectively.
+- Intended trained component-erasure damage: GRU 0.053/0.227/0.195; Transformer 0.115/0.366/0.356. Untrained damage was 0.111/0.280/0.266 and 0.271/0.339/0.324, so increased damage is not training-specific.
 
 ## Interpretation
 
-The registered length prediction is supported: trained-over-untrained component-posterior R² gain increases monotonically with context length for both models. This supports the overlap-sweep interpretation that training adds temporal integration where evidence accumulates over context, rather than merely making current-token features linearly accessible. It does not generalize to the full conditional-state posterior. Independent-probe component damage also becomes large at length 64 for the Transformer, but its seed variance is too high for a stable causal claim.
+The registered component-count prediction is supported: both absolute classification and posterior R² decline as the component simplex expands at fixed width. Training retains meaningful advantage over random features, especially for the Transformer. Independent component-erasure damage grows from two to three components but does not increase further at four and is comparable in untrained networks. This continues to separate the robust correlational result from the unstable training-specific causal claim.
 
 ## Next smallest experiment
 
-At fixed overlap 0.35 and length 32, sweep component count through 2, 3, and 4 using distinct emission permutations. The falsifiable prediction is that per-component classification and component-posterior R² fall as the identity simplex expands at fixed model width. Width and intervention depth follow after this test.
+At fixed overlap 0.35, length 32, and two components, sweep model width through 8, 16, 32, and 64. The falsifiable prediction is that trained component-posterior R² saturates while independent-erasure stability (lower relative seed SD) improves with width. Intervention depth follows after this test.
