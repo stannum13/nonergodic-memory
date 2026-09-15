@@ -10,7 +10,7 @@ budget_configs=(
   configs/sweeps/budget_o000_l009.yaml
   configs/sweeps/budget_o035_l009.yaml
 )
-if [[ ! -f results/sweep_short_context.jsonl ]]; then
+if [[ ! -f results/sweep_short_context.jsonl || ! -f results/sweep_position_restart.jsonl ]]; then
   bash scripts/sweep_short_context.sh
 fi
 for config in "${budget_configs[@]}"; do
