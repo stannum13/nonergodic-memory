@@ -8,7 +8,7 @@ from nonergodic_memory.context import (
     collect_restart_activations,
     oracle_window_beliefs,
 )
-from nonergodic_memory.data.hmm import make_two_source_mixture
+from nonergodic_memory.data.hmm import HMM, HMMMixture, make_two_source_mixture
 from nonergodic_memory.models.sequence import GRUPredictor
 
 
@@ -59,3 +59,20 @@ def test_oracle_window_beliefs_match_first_full_prefix() -> None:
     np.testing.assert_allclose(windowed.predictive[0], manual.predictive[0, -1])
     np.testing.assert_allclose(windowed.predictive[0], aligned.predictive[0])
     np.testing.assert_allclose(windowed.component_posterior[0], aligned.component_posterior[0])
+
+
+def test_oracle_window_beliefs_use_elapsed_position_prior() -> None:
+    mixture, batch, _, _ = _sample_full_table()
+    windowed = oracle_window_beliefs(batch, mixture, window=8)
+    shifted = HMMMixture(
+        [
+            HMM(hmm.transition, hmm.emission, hmm.initial @ hmm.transition)
+            for hmm in mixture.components
+        ],
+        mixture.weights,
+    )
+    manual = shifted.filter(batch.tokens[0, 1:9][None, :])
+    np.testing.assert_allclose(windowed.predictive[1], manual.predictive[0, -1], atol=1e-12)
+    np.testing.assert_allclose(
+        windowed.component_posterior[1], manual.component_posterior[0, -1], atol=1e-12
+    )

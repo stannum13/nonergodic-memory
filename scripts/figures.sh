@@ -8,3 +8,4 @@ python -m nonergodic_memory.sweeps --axis components
 python -m nonergodic_memory.sweeps --axis width
 python -m nonergodic_memory.sweeps --axis depth
 python -m nonergodic_memory.sweeps --axis interaction
+python -m nonergodic_memory.context_figures
