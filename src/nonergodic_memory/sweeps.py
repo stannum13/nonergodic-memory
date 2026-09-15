@@ -29,6 +29,50 @@ def _load_paths(paths: Iterable[str | Path]) -> list[dict]:
     return records
 
 
+def interaction_contrasts(probes: list[dict], metric: str) -> dict[str, list[float]]:
+    """Paired 2×2 training-gain interaction for overlap 0/.35 and length 8/64."""
+    records = [
+        r for r in probes
+        if r.get("record_type") == "probe" and r.get("control") == "none"
+    ]
+    if not records:
+        raise ValueError("missing interaction probe records")
+    grid = {(0.0, 8), (0.0, 64), (0.35, 8), (0.35, 64)}
+    cells: dict[tuple[str, int, float, int, str], dict] = {}
+    for record in records:
+        axis = (float(record["overlap"]), int(record["sequence_length"]))
+        if axis not in grid or record["training_condition"] not in {"trained", "untrained"}:
+            raise ValueError(f"unexpected interaction cell: {axis}")
+        key = (
+            str(record["model"]), int(record["seed"]), *axis,
+            str(record["training_condition"]),
+        )
+        if key in cells:
+            raise ValueError(f"duplicate interaction cell: {key}")
+        cells[key] = record
+    models = sorted({key[0] for key in cells})
+    seeds = sorted({key[1] for key in cells})
+    contrasts: dict[str, list[float]] = {}
+    for model in models:
+        values = []
+        for seed in seeds:
+            gains = {}
+            for overlap, length in grid:
+                trained_key = (model, seed, overlap, length, "trained")
+                untrained_key = (model, seed, overlap, length, "untrained")
+                if trained_key not in cells or untrained_key not in cells:
+                    raise ValueError(f"missing interaction cell: {(model, seed, overlap, length)}")
+                gains[(overlap, length)] = (
+                    float(cells[trained_key][metric]) - float(cells[untrained_key][metric])
+                )
+            values.append(
+                (gains[(0.35, 64)] - gains[(0.35, 8)])
+                - (gains[(0.0, 64)] - gains[(0.0, 8)])
+            )
+        contrasts[model] = values
+    return contrasts
+
+
 def _generate_sweep_figure(
     paths: Iterable[str | Path],
     output: str | Path,
@@ -117,6 +161,104 @@ def generate_width_figure(paths: Iterable[str | Path], output: str | Path) -> Pa
     return _generate_sweep_figure(
         paths, output, "model_width", "Model-width sweep", "model width"
     )
+
+
+def generate_interaction_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
+    records = _load_paths(paths)
+    probes = [r for r in records if r.get("record_type") == "probe" and r.get("control") == "none"]
+    contrasts = interaction_contrasts(probes, "component_posterior_r2")
+    interaction_contrasts(probes, "state_posterior_r2")
+    models = sorted(contrasts)
+    seeds = sorted({int(r["seed"]) for r in probes})
+    overlaps = (0.0, 0.35)
+    lengths = (8, 64)
+    interventions = [
+        r for r in records
+        if r.get("record_type") == "intervention"
+        and r.get("training_condition") == "trained"
+        and r.get("target") == "component"
+        and r.get("control") in {"learned", "norm_matched_random"}
+    ]
+    control_cells: dict[tuple[str, int, float, int, str], dict] = {}
+    for record in interventions:
+        if not record.get("independent_evaluator"):
+            raise ValueError("interaction figure requires independent intervention evaluator")
+        key = (
+            str(record["model"]), int(record["seed"]), float(record["overlap"]),
+            int(record["sequence_length"]), str(record["control"]),
+        )
+        if key in control_cells:
+            raise ValueError(f"duplicate interaction intervention cell: {key}")
+        control_cells[key] = record
+    for model in models:
+        for seed in seeds:
+            for overlap in overlaps:
+                for length in lengths:
+                    for control in ("learned", "norm_matched_random"):
+                        key = (model, seed, overlap, length, control)
+                        if key not in control_cells:
+                            raise ValueError(f"missing interaction intervention cell: {key}")
+
+    fig, axes = plt.subplots(len(models), 3, figsize=(15.0, 3.6 * len(models)), squeeze=False)
+    for row, model in enumerate(models):
+        for column, metric in enumerate(("component_posterior_r2", "state_posterior_r2")):
+            axis = axes[row, column]
+            for overlap, color in ((0.0, "#4477AA"), (0.35, "#EE6677")):
+                means, errors = [], []
+                for length in lengths:
+                    gains = []
+                    for seed in seeds:
+                        trained = next(
+                            r for r in probes if r["model"] == model and r["seed"] == seed
+                            and float(r["overlap"]) == overlap and int(r["sequence_length"]) == length
+                            and r["training_condition"] == "trained"
+                        )
+                        untrained = next(
+                            r for r in probes if r["model"] == model and r["seed"] == seed
+                            and float(r["overlap"]) == overlap and int(r["sequence_length"]) == length
+                            and r["training_condition"] == "untrained"
+                        )
+                        gains.append(float(trained[metric]) - float(untrained[metric]))
+                    means.append(float(np.mean(gains)))
+                    errors.append(float(np.std(gains)))
+                axis.errorbar(lengths, means, yerr=errors, marker="o", capsize=3,
+                              color=color, label=f"overlap {overlap:.2f}")
+            axis.axhline(0, color="black", linewidth=0.7)
+            if column == 0:
+                contrast = contrasts[model]
+                title = f"{model}: component gain; I={np.mean(contrast):+.3f} ± {np.std(contrast):.3f}"
+            else:
+                title = f"{model}: conditional-state gain"
+            axis.set(title=title, xlabel="sequence length", ylabel="trained − untrained $R^2$", xticks=lengths)
+            axis.legend(frameon=False)
+
+        axis = axes[row, 2]
+        for overlap, color in ((0.0, "#4477AA"), (0.35, "#EE6677")):
+            means, errors = [], []
+            for length in lengths:
+                advantages = []
+                for seed in seeds:
+                    learned = control_cells[(model, seed, overlap, length, "learned")]
+                    matched = control_cells[(model, seed, overlap, length, "norm_matched_random")]
+                    advantages.append(
+                        float(matched["delta_component_accuracy"])
+                        - float(learned["delta_component_accuracy"])
+                    )
+                means.append(float(np.mean(advantages)))
+                errors.append(float(np.std(advantages)))
+            axis.errorbar(lengths, means, yerr=errors, marker="o", capsize=3,
+                          color=color, label=f"overlap {overlap:.2f}")
+        axis.axhline(0, color="black", linewidth=0.7)
+        axis.set(title=f"{model}: component-erasure advantage", xlabel="sequence length",
+                 ylabel="learned − norm-matched damage", xticks=lengths)
+        axis.legend(frameon=False)
+    fig.suptitle(f"Overlap × context interaction; mean ± seed SD (n={len(seeds)})")
+    destination = Path(output)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    fig.tight_layout()
+    fig.savefig(destination, dpi=180, bbox_inches="tight")
+    plt.close(fig)
+    return destination
 
 
 def generate_depth_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
@@ -278,10 +420,10 @@ def generate_component_figure(paths: Iterable[str | Path], output: str | Path) -
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--axis", choices=["overlap", "length", "components", "width", "depth"], default="overlap")
+    parser.add_argument("--axis", choices=["overlap", "length", "components", "width", "depth", "interaction"], default="overlap")
     args = parser.parse_args()
-    prefix = {"overlap": "sweep_overlap", "length": "sweep_length", "components": "sweep_components", "width": "sweep_width", "depth": "sweep_depth"}[args.axis]
-    generator = {"overlap": generate_overlap_figure, "length": generate_length_figure, "components": generate_component_figure, "width": generate_width_figure, "depth": generate_depth_figure}[args.axis]
+    prefix = {"overlap": "sweep_overlap", "length": "sweep_length", "components": "sweep_components", "width": "sweep_width", "depth": "sweep_depth", "interaction": "sweep_interaction"}[args.axis]
+    generator = {"overlap": generate_overlap_figure, "length": generate_length_figure, "components": generate_component_figure, "width": generate_width_figure, "depth": generate_depth_figure, "interaction": generate_interaction_figure}[args.axis]
     paths = [f"results/{prefix}.jsonl"] if args.axis == "depth" else [
         f"results/{prefix}_reproduction.jsonl",
         f"results/{prefix}_extension.jsonl",
