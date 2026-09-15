@@ -1,0 +1,4 @@
+data: {overlap: 0.35, sequence_length: 64, train_sequences: 512, test_sequences: 192}
+model: {width: 32, layers: 2, heads: 4, max_length: 64}
+train: {epochs: 12, batch_size: 64, learning_rate: 0.003}
+probe: {train_sequences: 256, test_sequences: 192}
