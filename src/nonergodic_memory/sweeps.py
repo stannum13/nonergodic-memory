@@ -52,6 +52,10 @@ def interaction_contrasts(probes: list[dict], metric: str) -> dict[str, list[flo
         cells[key] = record
     models = sorted({key[0] for key in cells})
     seeds = sorted({key[1] for key in cells})
+    if set(models) != {"gru", "transformer"}:
+        raise ValueError(f"missing required models: expected gru/transformer, got {models}")
+    if set(seeds) != {0, 1, 2}:
+        raise ValueError(f"missing required seeds: expected 0/1/2, got {seeds}")
     contrasts: dict[str, list[float]] = {}
     for model in models:
         values = []
@@ -71,6 +75,81 @@ def interaction_contrasts(probes: list[dict], metric: str) -> dict[str, list[flo
             )
         contrasts[model] = values
     return contrasts
+
+
+def _interaction_evidence_cells(
+    records: list[dict],
+) -> tuple[dict[tuple[str, int, float, int, str, str], dict],
+           dict[tuple[str, int, float, int, str, str, str], dict]]:
+    """Reject incomplete or spliced probe/intervention evidence before plotting."""
+    models = ("gru", "transformer")
+    seeds = (0, 1, 2)
+    overlaps = (0.0, 0.35)
+    lengths = (8, 64)
+    conditions = ("trained", "untrained")
+    targets = ("component", "state")
+    probe_controls = ("none", "shuffled_labels")
+    intervention_controls = (
+        "baseline", "learned", "random_subspace", "norm_matched_random", "shuffled_labels"
+    )
+    provenance_by_axis: dict[tuple[float, int], tuple[str, str]] = {}
+    axis_by_config: dict[str, tuple[float, int]] = {}
+    probe_cells: dict[tuple[str, int, float, int, str, str], dict] = {}
+    intervention_cells: dict[tuple[str, int, float, int, str, str, str], dict] = {}
+    for record in records:
+        kind = record.get("record_type")
+        if kind not in {"probe", "intervention"}:
+            continue
+        model, seed = str(record["model"]), int(record["seed"])
+        axis = (float(record["overlap"]), int(record["sequence_length"]))
+        condition = str(record["training_condition"])
+        control = str(record["control"])
+        if model not in models or seed not in seeds or axis not in {
+            (overlap, length) for overlap in overlaps for length in lengths
+        } or condition not in conditions:
+            raise ValueError(f"unexpected interaction evidence cell: {(model, seed, axis, condition)}")
+        name, digest = record.get("config"), record.get("config_sha256")
+        if not name or not digest:
+            raise ValueError("missing interaction config provenance")
+        identity = (str(name), str(digest))
+        if axis in provenance_by_axis and provenance_by_axis[axis] != identity:
+            raise ValueError(f"mixed config provenance for interaction axis {axis}")
+        if str(name) in axis_by_config and axis_by_config[str(name)] != axis:
+            raise ValueError(f"mixed config provenance for interaction config {name}")
+        provenance_by_axis[axis] = identity
+        axis_by_config[str(name)] = axis
+        if kind == "probe":
+            if control not in probe_controls:
+                raise ValueError(f"unexpected interaction probe control: {control}")
+            key = (model, seed, *axis, condition, control)
+            if key in probe_cells:
+                raise ValueError(f"duplicate interaction probe cell: {key}")
+            probe_cells[key] = record
+        else:
+            target = str(record["target"])
+            if target not in targets or control not in intervention_controls:
+                raise ValueError(f"unexpected interaction intervention cell: {(target, control)}")
+            if not record.get("independent_evaluator"):
+                raise ValueError("interaction figure requires independent intervention evaluator")
+            key = (model, seed, *axis, condition, target, control)
+            if key in intervention_cells:
+                raise ValueError(f"duplicate interaction intervention cell: {key}")
+            intervention_cells[key] = record
+    for model in models:
+        for seed in seeds:
+            for overlap in overlaps:
+                for length in lengths:
+                    for condition in conditions:
+                        for control in probe_controls:
+                            key = (model, seed, overlap, length, condition, control)
+                            if key not in probe_cells:
+                                raise ValueError(f"missing interaction probe cell: {key}")
+                        for target in targets:
+                            for control in intervention_controls:
+                                key = (model, seed, overlap, length, condition, target, control)
+                                if key not in intervention_cells:
+                                    raise ValueError(f"missing interaction intervention cell: {key}")
+    return probe_cells, intervention_cells
 
 
 def _generate_sweep_figure(
@@ -165,39 +244,21 @@ def generate_width_figure(paths: Iterable[str | Path], output: str | Path) -> Pa
 
 def generate_interaction_figure(paths: Iterable[str | Path], output: str | Path) -> Path:
     records = _load_paths(paths)
-    probes = [r for r in records if r.get("record_type") == "probe" and r.get("control") == "none"]
+    probe_cells, intervention_cells = _interaction_evidence_cells(records)
+    probes = [r for key, r in probe_cells.items() if key[-1] == "none"]
     contrasts = interaction_contrasts(probes, "component_posterior_r2")
     interaction_contrasts(probes, "state_posterior_r2")
     models = sorted(contrasts)
     seeds = sorted({int(r["seed"]) for r in probes})
     overlaps = (0.0, 0.35)
     lengths = (8, 64)
-    interventions = [
-        r for r in records
-        if r.get("record_type") == "intervention"
-        and r.get("training_condition") == "trained"
-        and r.get("target") == "component"
-        and r.get("control") in {"learned", "norm_matched_random"}
-    ]
-    control_cells: dict[tuple[str, int, float, int, str], dict] = {}
-    for record in interventions:
-        if not record.get("independent_evaluator"):
-            raise ValueError("interaction figure requires independent intervention evaluator")
-        key = (
-            str(record["model"]), int(record["seed"]), float(record["overlap"]),
-            int(record["sequence_length"]), str(record["control"]),
-        )
-        if key in control_cells:
-            raise ValueError(f"duplicate interaction intervention cell: {key}")
-        control_cells[key] = record
-    for model in models:
-        for seed in seeds:
-            for overlap in overlaps:
-                for length in lengths:
-                    for control in ("learned", "norm_matched_random"):
-                        key = (model, seed, overlap, length, control)
-                        if key not in control_cells:
-                            raise ValueError(f"missing interaction intervention cell: {key}")
+    control_cells = {
+        (model, seed, overlap, length, control): record
+        for (model, seed, overlap, length, condition, target, control), record
+        in intervention_cells.items()
+        if condition == "trained" and target == "component"
+        and control in {"learned", "norm_matched_random"}
+    }
 
     fig, axes = plt.subplots(len(models), 3, figsize=(15.0, 3.6 * len(models)), squeeze=False)
     for row, model in enumerate(models):

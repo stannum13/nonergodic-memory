@@ -6,19 +6,19 @@ Small next-token predictors trained on a fixed-component mixture will expose lin
 
 ## Last experiment
 
-Transformer intervention-depth sweep after block 1, block 2, and final normalization, seeds 0/1/2, on CPU at the central setting. Each intervention used disjoint direction-fit, evaluator-fit, and test sequences and was propagated through the actual remaining Transformer layers.
+Fresh overlap-by-context 2×2 grid at overlap 0.00/0.35 and length 8/64, both models, seeds 0/1/2, on CPU with identical 512-sequence/12-epoch settings per cell. The primary paired contrast was registered and committed before running; all four cells included untrained and shuffled probe controls plus three-split causal interventions.
 
 ## Result
 
-- Trained component-posterior R² rises with depth: 0.733/0.893/0.928; untrained recovery is 0.493/0.627/0.633.
-- Component-erasure Δ exact-predictive KL also rises: 0.0050/0.0074/0.0135. Its intended component-accuracy decrease instead falls: 0.589/0.438/0.410, with large seed SD 0.179/0.224/0.295.
-- Conditional-state posterior R² is 0.773/0.774/0.746. State-erasure intended accuracy decrease is 0.152/0.149/0.169, while Δ exact-predictive KL falls 0.0076/0.0026/0.0019.
-- Learned intended damage exceeds norm-matched controls at all depths; cross-target accuracy decrease is at most 0.020.
+- Component-posterior training-gain interaction `I` is positive for all three seeds in both models: GRU +0.113/+0.160/+0.108 (mean +0.127 ± 0.024); Transformer +0.204/+0.241/+0.196 (mean +0.214 ± 0.020).
+- Full conditional-state-posterior interaction is near zero and inconsistent: GRU +0.003 ± 0.012; Transformer +0.003 ± 0.023.
+- Learned-minus-norm-matched component-erasure accuracy damage at overlap .35/length 64 is 0.108 ± 0.088 for GRU and 0.462 ± 0.309 for Transformer; the latter ranges 0.065–0.818 across seeds.
+- The zero-overlap trained component R² is already near ceiling at lengths 8/64; a post-hoc remaining-error-closure diagnostic still has a larger length change at overlap .35, but it was not preregistered.
 
 ## Interpretation
 
-The prediction is partially supported for component belief: linear recovery and predictive KL damage increase with depth, and selectivity beats matched controls. It is falsified as a general account of both belief types. Component-decoding damage does not increase, conditional-state recovery does not improve, and state-target predictive damage decreases. Depth changes how component information affects prediction, but does not create a uniform hierarchy of increasing causal necessity.
+The registered interaction prediction is supported for component belief in this small grid: training adds more length-related recoverability at intermediate overlap than at disjoint emissions. It is not supported for conditional-state belief, and erasure effects remain seed-sensitive. The positive R² contrast does not by itself establish use of remote history; zero-overlap saturation and difficulty-by-compute interactions remain alternatives.
 
 ## Next smallest experiment
 
-Registered before running: a fresh 2×2 overlap-by-context grid with overlap 0.00/0.35 and lengths 8/64, both models, seeds 0/1/2, and identical 512-sequence/12-epoch CPU compute per cell. For each model define held-out component-posterior training gain `G(o,L) = R²_trained(o,L) − R²_untrained(o,L)`. Primary prediction: paired interaction `I = [G(0.35,64) − G(0.35,8)] − [G(0.00,64) − G(0.00,8)] > 0`. This specifically tests whether temporal-integration gain is larger at intermediate overlap than at disjoint emissions. The full conditional-state-posterior gain and learned-minus-norm-matched component-erasure damage are secondary diagnostics. No result is claimed for this unrun grid.
+The smallest causal follow-up is a context-restart control on the already trained length-64 models: evaluate held-out positions after resetting the model to only the most recent eight tokens, while keeping full-history exact Bayesian targets fixed. Prediction to register before running: truncation increases component-posterior regression loss and exact-predictive KL more at overlap .35 than zero, especially in trained models. Compare against the exact Bayesian eight-token predictor and untrained networks. No result is claimed for this unrun control.
