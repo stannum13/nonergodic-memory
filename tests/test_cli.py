@@ -52,6 +52,29 @@ def test_context_restart_cli_writes_aligned_raw_records(tmp_path: Path) -> None:
     assert {r["record_type"] for r in rows} == {"context_restart", "context_oracle"}
 
 
+def test_position_preserving_cli_writes_three_aligned_transformer_contexts(tmp_path: Path) -> None:
+    config_path = ROOT / "configs" / "smoke.yaml"
+    checkpoint_root = tmp_path / "checkpoints"
+    train_one(load_config(config_path), "transformer", seed=0, output_dir=checkpoint_root / "smoke")
+    output = tmp_path / "absolute.jsonl"
+    completed = subprocess.run(
+        [
+            sys.executable, str(ROOT / "src" / "context_restart.py"),
+            "--configs", str(config_path), "--models", "transformer", "--seeds", "0",
+            "--window", "8", "--include-absolute-positions",
+            "--checkpoint-root", str(checkpoint_root), "--results", str(output),
+        ],
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    rows = [json.loads(line) for line in output.read_text().splitlines()]
+    assert len(rows) == 13
+    model_rows = [r for r in rows if r["record_type"] == "context_restart"]
+    assert {r["context"] for r in model_rows} == {"full", "restart_8", "restart_8_absolute"}
+    assert all(r["positions_evaluated"] == 4 and r["observations_evaluated"] == 48 * 4 for r in model_rows)
+
+
 def test_figures_are_generated_only_from_jsonl(tmp_path: Path) -> None:
     results = tmp_path / "results"
     results.mkdir()

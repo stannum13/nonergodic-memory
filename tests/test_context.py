@@ -60,6 +60,21 @@ def test_transformer_restart_first_window_matches_full_prefix() -> None:
     np.testing.assert_allclose(restarted.hidden[::2], aligned.hidden[::2], atol=1e-6)
 
 
+def test_absolute_position_restart_keeps_labels_and_changes_later_windows() -> None:
+    mixture = make_two_source_mixture(0.35)
+    batch = mixture.sample(4, 10, seed=17)
+    model = TransformerPredictor(4, width=8, heads=2, max_length=10).eval()
+    full = collect_activations(model, batch, mixture)
+    reset = collect_restart_activations(model, batch, full, window=8, batch_windows=3)
+    absolute = collect_restart_activations(
+        model, batch, full, window=8, batch_windows=3, position_mode="absolute"
+    )
+    np.testing.assert_array_equal(absolute.positions, reset.positions)
+    np.testing.assert_array_equal(absolute.targets, reset.targets)
+    np.testing.assert_allclose(absolute.logits[::2], reset.logits[::2], atol=1e-6)
+    assert not np.allclose(absolute.logits[1::2], reset.logits[1::2])
+
+
 def test_oracle_window_beliefs_match_first_full_prefix() -> None:
     mixture, batch, _, full = _sample_full_table()
     windowed = oracle_window_beliefs(batch, mixture, window=8)

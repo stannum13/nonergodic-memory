@@ -33,3 +33,20 @@ def test_transformer_layerwise_continuations_reproduce_logits() -> None:
     for depth, hidden in enumerate(layer_activations):
         actual, _ = model.logits_from_depth(hidden, depth)
         torch.testing.assert_close(actual, expected)
+
+
+def test_transformer_accepts_per_example_absolute_position_offsets() -> None:
+    torch.manual_seed(7)
+    model = TransformerPredictor(4, width=8, heads=2, max_length=16).eval()
+    tokens = torch.tensor([[0, 1, 2], [0, 1, 2]])
+    reset, _ = model(tokens)
+    absolute, _ = model(tokens, position_offsets=torch.tensor([0, 5]))
+    torch.testing.assert_close(absolute[0], reset[0])
+    assert not torch.allclose(absolute[1], reset[1])
+    with torch.no_grad():
+        try:
+            model(tokens, position_offsets=torch.tensor([0, 14]))
+        except ValueError as exc:
+            assert "position" in str(exc)
+        else:
+            raise AssertionError("out-of-range offset was accepted")

@@ -41,6 +41,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--window", type=int, default=8)
     parser.add_argument("--checkpoint-root", default="checkpoints/sweeps")
     parser.add_argument("--results", default="results/sweep_context_restart.jsonl")
+    parser.add_argument("--include-absolute-positions", action="store_true")
     return parser.parse_args()
 
 
@@ -70,6 +71,8 @@ def _oracle_metrics(batch, mixture, window: int) -> dict[str, float]:
 
 def main() -> None:
     args = parse_args()
+    if args.include_absolute_positions and args.models != ["transformer"]:
+        raise ValueError("absolute-position control requires only the Transformer model")
     provenance = runtime_provenance()
     for config_path in args.configs:
         config = load_config(config_path)
@@ -136,6 +139,17 @@ def main() -> None:
                             collect_restart_activations(model, test_batch, full_test, args.window),
                         ),
                     }
+                    if args.include_absolute_positions:
+                        contexts[f"restart_{args.window}_absolute"] = (
+                            collect_restart_activations(
+                                model, train_batch, full_train, args.window,
+                                position_mode="absolute",
+                            ),
+                            collect_restart_activations(
+                                model, test_batch, full_test, args.window,
+                                position_mode="absolute",
+                            ),
+                        )
                     for context_name, (fit_table, test_table) in contexts.items():
                         for control, shuffled in (("none", False), ("shuffled_labels", True)):
                             bundle = fit_probes(fit_table, test_table, seed, shuffle_labels=shuffled)

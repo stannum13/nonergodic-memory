@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import fields, replace
+from typing import Literal
 
 import numpy as np
 import torch
@@ -11,6 +12,7 @@ from torch import nn
 
 from .analysis import ActivationTable
 from .data.hmm import FilterResult, HMM, HMMMixture, SequenceBatch
+from .models.sequence import TransformerPredictor
 
 
 def aligned_full_table(table: ActivationTable, window: int) -> ActivationTable:
@@ -30,20 +32,32 @@ def collect_restart_activations(
     full_table: ActivationTable,
     window: int,
     batch_windows: int = 512,
+    position_mode: Literal["reset", "absolute"] = "reset",
 ) -> ActivationTable:
     """Restart the model on each final `window` observations, retaining full targets."""
     if batch_windows < 1:
         raise ValueError("batch_windows must be positive")
+    if position_mode not in {"reset", "absolute"}:
+        raise ValueError("position mode must be reset or absolute")
+    if position_mode == "absolute" and not isinstance(model, TransformerPredictor):
+        raise ValueError("absolute positions require a Transformer")
     aligned = aligned_full_table(full_table, window)
     inputs = batch.tokens[:, :-1]
     windows = sliding_window_view(inputs, window_shape=window, axis=1)
     flat = windows.reshape(-1, window).copy()
     if len(flat) != len(aligned.hidden):
         raise ValueError("full activation table does not align with restart windows")
+    offsets = np.tile(np.arange(windows.shape[1], dtype=np.int64), windows.shape[0])
     model.eval()
     logits_parts, hidden_parts = [], []
     for start in range(0, len(flat), batch_windows):
-        logits, hidden = model(torch.from_numpy(flat[start : start + batch_windows]))
+        tokens = torch.from_numpy(flat[start : start + batch_windows])
+        if position_mode == "absolute":
+            logits, hidden = model(
+                tokens, position_offsets=torch.from_numpy(offsets[start : start + batch_windows])
+            )
+        else:
+            logits, hidden = model(tokens)
         logits_parts.append(logits[:, -1].numpy())
         hidden_parts.append(hidden[:, -1].numpy())
     return replace(
