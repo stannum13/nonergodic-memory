@@ -22,7 +22,7 @@ def _interaction_probe_records() -> list[dict]:
     }
     records = []
     for model, grid in gains.items():
-        for seed in (0, 1):
+        for seed in (0, 1, 2):
             for (overlap, length), gain in grid.items():
                 for condition in ("trained", "untrained"):
                     records.append(
@@ -44,43 +44,88 @@ def _interaction_probe_records() -> list[dict]:
 def test_interaction_contrast_is_paired_and_complete() -> None:
     records = _interaction_probe_records()
     contrasts = interaction_contrasts(records, "component_posterior_r2")
-    np.testing.assert_allclose(contrasts["gru"], [0.20, 0.20])
-    np.testing.assert_allclose(contrasts["transformer"], [-0.10, -0.10])
+    np.testing.assert_allclose(contrasts["gru"], [0.20, 0.20, 0.20])
+    np.testing.assert_allclose(contrasts["transformer"], [-0.10, -0.10, -0.10])
     with pytest.raises(ValueError, match="missing"):
         interaction_contrasts(records[:-1], "component_posterior_r2")
     with pytest.raises(ValueError, match="duplicate"):
         interaction_contrasts([*records, records[0]], "component_posterior_r2")
+    with pytest.raises(ValueError, match="required models"):
+        interaction_contrasts([r for r in records if r["model"] != "gru"], "component_posterior_r2")
+    with pytest.raises(ValueError, match="required seeds"):
+        interaction_contrasts([r for r in records if r["seed"] != 2], "component_posterior_r2")
 
 
-def test_interaction_figure_uses_four_cell_raw_grid(tmp_path: Path) -> None:
+def _interaction_figure_records() -> tuple[list[dict], list[dict]]:
     probes = _interaction_probe_records()
+    for record in probes:
+        record["config"] = f"interaction_o{int(record['overlap'] * 100):03d}_l{record['sequence_length']:03d}"
+        record["config_sha256"] = f"digest_{int(record['overlap'] * 100):03d}_{record['sequence_length']:03d}"
+    probes.extend({**record, "control": "shuffled_labels"} for record in list(probes))
     interventions = []
     for model in ("gru", "transformer"):
-        for seed in (0, 1):
+        for seed in (0, 1, 2):
             for overlap in (0.0, 0.35):
                 for length in (8, 64):
-                    for control, damage in (("learned", 0.10 + 0.1 * overlap + 0.002 * length), ("norm_matched_random", 0.01)):
-                        interventions.append(
-                            {
-                                "record_type": "intervention",
-                                "model": model,
-                                "seed": seed,
-                                "overlap": overlap,
-                                "sequence_length": length,
-                                "training_condition": "trained",
-                                "target": "component",
-                                "control": control,
-                                "independent_evaluator": True,
-                                "delta_component_accuracy": -damage,
-                            }
-                        )
+                    for condition in ("trained", "untrained"):
+                        for target in ("component", "state"):
+                            for control in ("baseline", "learned", "random_subspace", "norm_matched_random", "shuffled_labels"):
+                                if condition == "trained" and target == "component" and control == "learned":
+                                    damage = 0.10 + 0.1 * overlap + 0.002 * length
+                                elif condition == "trained" and target == "component" and control == "norm_matched_random":
+                                    damage = 0.01
+                                else:
+                                    damage = 0.001
+                                interventions.append(
+                                    {
+                                        "record_type": "intervention",
+                                        "model": model,
+                                        "seed": seed,
+                                        "overlap": overlap,
+                                        "sequence_length": length,
+                                        "config": f"interaction_o{int(overlap * 100):03d}_l{length:03d}",
+                                        "config_sha256": f"digest_{int(overlap * 100):03d}_{length:03d}",
+                                        "training_condition": condition,
+                                        "target": target,
+                                        "control": control,
+                                        "independent_evaluator": True,
+                                        "delta_component_accuracy": -damage,
+                                    }
+                                )
+    return probes, interventions
+
+
+def _write_interaction_fixture(tmp_path: Path, probes: list[dict], interventions: list[dict]) -> list[Path]:
     probe_path = tmp_path / "probes.jsonl"
     intervention_path = tmp_path / "interventions.jsonl"
     probe_path.write_text("".join(json.dumps(r) + "\n" for r in probes))
     intervention_path.write_text("".join(json.dumps(r) + "\n" for r in interventions))
+    return [probe_path, intervention_path]
+
+
+def test_interaction_figure_uses_four_cell_raw_grid(tmp_path: Path) -> None:
+    probes, interventions = _interaction_figure_records()
+    paths = _write_interaction_fixture(tmp_path, probes, interventions)
     output = tmp_path / "interaction.png"
-    generate_interaction_figure([probe_path, intervention_path], output)
+    generate_interaction_figure(paths, output)
     assert output.exists() and output.stat().st_size > 1000
+
+
+def test_interaction_figure_rejects_missing_random_control(tmp_path: Path) -> None:
+    probes, interventions = _interaction_figure_records()
+    paths = _write_interaction_fixture(
+        tmp_path, probes, [r for r in interventions if r["control"] != "random_subspace"]
+    )
+    with pytest.raises(ValueError, match="missing interaction intervention"):
+        generate_interaction_figure(paths, tmp_path / "incomplete.png")
+
+
+def test_interaction_figure_rejects_spliced_config_digest(tmp_path: Path) -> None:
+    probes, interventions = _interaction_figure_records()
+    interventions[0]["config_sha256"] = "wrong_digest"
+    paths = _write_interaction_fixture(tmp_path, probes, interventions)
+    with pytest.raises(ValueError, match="mixed config provenance"):
+        generate_interaction_figure(paths, tmp_path / "spliced.png")
 
 
 def test_overlap_figure_is_generated_from_raw_records(tmp_path: Path) -> None:
