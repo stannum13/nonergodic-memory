@@ -1,5 +1,8 @@
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import numpy as np
 import pytest
@@ -63,3 +66,16 @@ def test_position_figure_regenerates_from_raw(tmp_path: Path) -> None:
     output = tmp_path / "position.png"
     generate_position_figure(raw, output)
     assert output.exists() and output.stat().st_size > 1000
+
+
+def test_optional_position_figure_skips_missing_raw_and_removes_stale(tmp_path: Path) -> None:
+    raw = tmp_path / "missing.jsonl"
+    stale = tmp_path / "stale.png"
+    stale.write_bytes(b"old")
+    env = dict(os.environ, PYTHONPATH=str(Path(__file__).parents[1] / "src"))
+    result = subprocess.run(
+        [sys.executable, "-m", "nonergodic_memory.position_figures", "--results", str(raw), "--output", str(stale)],
+        env=env, capture_output=True, text=True, check=False,
+    )
+    assert result.returncode == 0 and "skipped" in result.stdout
+    assert not stale.exists()

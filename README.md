@@ -28,6 +28,7 @@ make sweep-width   # widths 8/16/32/64 × two models × three seeds
 make sweep-depth   # Transformer block 1/block 2/final norm × three seeds
 make sweep-interaction # overlap 0/.35 × length 8/64 × two models × three seeds
 make sweep-context-restart # length-64 models: full prefix vs last 8 tokens, exact Bayes oracle
+make sweep-position-restart # Transformer: last 8 tokens with reset vs original position indices
 pytest -q
 ```
 
@@ -49,6 +50,7 @@ pytest -q
 - `results/sweep_depth.jsonl` and `figures/sweep_depth.png`: layerwise Transformer erasure propagated through the remaining network.
 - `results/sweep_interaction_*.jsonl` and `figures/sweep_interaction.png`: fresh matched overlap-by-context grid and paired interaction contrast.
 - `results/sweep_context_restart.jsonl` and `figures/sweep_context_restart.png`: held-out eight-token restarts with an elapsed-prior exact Bayesian oracle.
+- `results/sweep_position_restart.jsonl` and `figures/sweep_position_restart.png`: position-preserving Transformer restart control.
 - `STATE.md`: the current hypothesis → experiment → interpretation loop.
 - `report.md`: methods, results, negative results, and limitations.
 
