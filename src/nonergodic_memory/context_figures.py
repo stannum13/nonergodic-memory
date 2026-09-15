@@ -38,6 +38,15 @@ def _validated_cells(
             raise ValueError(f"unexpected context axis: {(seed, overlap)}")
         if record.get("window") != 8 or record.get("positions_evaluated") != 56:
             raise ValueError("context evidence requires 8-token restart at length 64")
+        if record.get("sequence_length") != 64:
+            raise ValueError("context evidence requires sequence length 64")
+        if (
+            record.get("probe_fit_sequences") != 256
+            or record.get("test_sequences") != 192
+            or record.get("probe_fit_data_seed") != seed + 909
+            or record.get("test_data_seed") != seed + 1009
+        ):
+            raise ValueError("context evidence requires independent registered sample seeds and sizes")
         name, digest = record.get("config"), record.get("config_sha256")
         if not name or not digest:
             raise ValueError("missing context config provenance")
@@ -62,6 +71,8 @@ def _validated_cells(
             raise ValueError(f"unexpected context model cell: {(model, condition, context, control)}")
         if not record.get("probe_fit_independent"):
             raise ValueError("context probes must use independent fit/test sequences")
+        if record.get("observations_evaluated") != 192 * 56:
+            raise ValueError("context test sample count is incomplete")
         key = (model, seed, overlap, condition, context, control)
         if key in model_cells:
             raise ValueError(f"duplicate context model cell: {key}")

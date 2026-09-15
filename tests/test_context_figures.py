@@ -21,6 +21,8 @@ def _context_fixture() -> list[dict]:
                     "record_type": "context_oracle", "model": "exact_bayes", "seed": seed,
                     "overlap": overlap, "config": config, "config_sha256": digest,
                     "window": 8, "positions_evaluated": 56,
+                    "sequence_length": 64, "probe_fit_sequences": 256, "test_sequences": 192,
+                    "probe_fit_data_seed": seed + 909, "test_data_seed": seed + 1009,
                     "oracle_component_posterior_r2": 0.95 if overlap == 0 else 0.8,
                     "oracle_kl_full_to_window": 0.005 if overlap == 0 else 0.02,
                 }
@@ -45,6 +47,9 @@ def _context_fixture() -> list[dict]:
                                     "record_type": "context_restart", "model": model, "seed": seed,
                                     "overlap": overlap, "config": config, "config_sha256": digest,
                                     "window": 8, "positions_evaluated": 56,
+                                    "sequence_length": 64, "probe_fit_sequences": 256, "test_sequences": 192,
+                                    "probe_fit_data_seed": seed + 909, "test_data_seed": seed + 1009,
+                                    "observations_evaluated": 192 * 56,
                                     "training_condition": condition, "context": context,
                                     "control": control, "probe_fit_independent": True,
                                     "component_posterior_r2": r2_full - (r2_loss if context == "restart_8" else 0),
@@ -88,3 +93,14 @@ def test_missing_optional_raw_skips_and_removes_stale_figure(tmp_path: Path) -> 
     assert result.returncode == 0, result.stderr
     assert "skipped" in result.stdout
     assert not stale.exists()
+
+
+def test_context_figure_rejects_misreported_length_and_sample_seeds() -> None:
+    rows = _context_fixture()
+    rows[0]["sequence_length"] = 32
+    with pytest.raises(ValueError, match="length"):
+        context_damage(rows, "kl_exact")
+    rows = _context_fixture()
+    rows[-1]["test_data_seed"] = 1009
+    with pytest.raises(ValueError, match="sample"):
+        context_damage(rows, "kl_exact")

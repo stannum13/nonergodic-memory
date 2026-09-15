@@ -2,23 +2,22 @@
 
 ## Hypothesis
 
-Small next-token predictors trained on a fixed-component mixture will expose linearly separable component identity and within-component predictive state. Probe-row-space erasure will cause selective damage: component erasure will reduce component accuracy more than conditional-state accuracy, and state erasure will do the converse, beyond rank- and norm-matched random controls.
+Small next-token predictors trained on a fixed-component HMM mixture should expose linearly separable component identity and within-component predictive state. Component and state erasures should selectively damage their intended targets beyond rank- and norm-matched random controls. The context follow-ups ask whether learned component belief uses remote history rather than only recent tokens.
 
 ## Last experiment
 
-Fresh overlap-by-context 2×2 grid at overlap 0.00/0.35 and length 8/64, both models, seeds 0/1/2, on CPU with identical 512-sequence/12-epoch settings per cell. The primary paired contrast was registered and committed before running; all four cells included untrained and shuffled probe controls plus three-split causal interventions.
+Preregistered eight-token context restart on overlap 0.00/0.35 length-64 checkpoints, positions 7–62, seeds 0/1/2, GRU and Transformer, trained/untrained and shuffled-label controls, separate probe-fit/test sequences, plus an exact Bayesian eight-token information-loss oracle. All measurements ran on CPU and were saved as 102 raw JSONL records. The registered plan was committed as `a0207a1` before measuring.
 
 ## Result
 
-- Component-posterior training-gain interaction `I` is positive for all three seeds in both models: GRU +0.113/+0.160/+0.108 (mean +0.127 ± 0.024); Transformer +0.204/+0.241/+0.196 (mean +0.214 ± 0.020).
-- Full conditional-state-posterior interaction is near zero and inconsistent: GRU +0.003 ± 0.012; Transformer +0.003 ± 0.023.
-- Learned-minus-norm-matched component-erasure accuracy damage at overlap .35/length 64 is 0.108 ± 0.088 for GRU and 0.462 ± 0.309 for Transformer; the latter ranges 0.065–0.818 across seeds.
-- The zero-overlap trained component R² is already near ceiling at lengths 8/64; a post-hoc remaining-error-closure diagnostic still has a larger length change at overlap .35, but it was not preregistered.
+- The registered overlap contrast in full-minus-restart component R² loss is +0.155 ± 0.003 for trained GRU and +0.150 ± 0.004 for trained Transformer, positive in all seeds; exact Bayes oracle contrast +0.156 ± 0.010. Untrained contrasts are +0.045 ± 0.000 and −0.046 ± 0.023.
+- Registered restart-minus-full predictive KL contrasts are +0.0148 ± 0.0016 for trained GRU and +0.0157 ± 0.0057 for trained Transformer, positive in all seeds; exact oracle +0.0148 ± 0.0014. Untrained KL contrasts are +0.0007 ± 0.0005 and +0.0093 ± 0.0403.
+- Secondary conditional-state R² contrast is approximately zero for GRU and −0.048 ± 0.009 for trained Transformer; the untrained Transformer is similarly −0.052 ± 0.011. Shuffled-label component R² is within ±0.016.
 
 ## Interpretation
 
-The registered interaction prediction is supported for component belief in this small grid: training adds more length-related recoverability at intermediate overlap than at disjoint emissions. It is not supported for conditional-state belief, and erasure effects remain seed-sensitive. The positive R² contrast does not by itself establish use of remote history; zero-overlap saturation and difficulty-by-compute interactions remain alternatives.
+The primary context-damage predictions are supported for trained component belief and predictive KL; their overlap contrasts are close to the analytic eight-token information-loss oracle. This strengthens evidence that full-length models use remote tokens at intermediate overlap. It does not establish a stable, selective activation subspace. The Transformer state effect is not training-specific, and restarting resets absolute positions and re-encodes recent tokens at a different sequence length.
 
 ## Next smallest experiment
 
-Registered before running: reuse the length-64 interaction checkpoints at overlap 0.00 and 0.35. For every held-out position 7–62, reset the model to its most recent eight observed tokens, but keep the full-history exact Bayesian belief/prediction as the scoring target. Fit separate held-out probes for full and restarted activations. Primary predictions, for both trained models: (1) full-minus-restart component-posterior R² loss and (2) restart-minus-full exact-predictive KL increase are larger at overlap .35 than 0.00; (3) at overlap .35 these damages exceed those of untrained models. The exact Bayesian eight-token predictor is an information-loss oracle control. Full conditional-state R² is secondary. Probe-fit/test data seeds are `seed+909`/`seed+1009`, with seeds 0/1/2 and restart window eight. No result is claimed for this unrun control.
+Register before running: repeat the Transformer eight-token restart with the original absolute position indices (window starts at full-prefix position `t−7`) rather than resetting them to zero, using identical checkpoints, tokens, and held-out splits. Compare original-index and reset-index windows to the same full-prefix target and exact oracle. Prediction: preserving indices reduces the trained and untrained conditional-state R² distortion if the current state effect is primarily a positional confound; the trained component-belief and predictive KL overlap contrasts should remain positive if remote-token loss is the main source of their damage. This is a diagnostic, not an already obtained result.

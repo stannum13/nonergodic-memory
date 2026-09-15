@@ -9,7 +9,7 @@ from nonergodic_memory.context import (
     oracle_window_beliefs,
 )
 from nonergodic_memory.data.hmm import HMM, HMMMixture, make_two_source_mixture
-from nonergodic_memory.models.sequence import GRUPredictor
+from nonergodic_memory.models.sequence import GRUPredictor, TransformerPredictor
 
 
 def _sample_full_table():
@@ -47,6 +47,17 @@ def test_restart_activations_are_aligned_and_use_only_last_window() -> None:
     with torch.no_grad():
         manual_logits, _ = model(torch.from_numpy(batch.tokens[0, :8][None, :]))
     np.testing.assert_allclose(restarted.logits[0], manual_logits[0, -1].numpy(), atol=1e-6)
+
+
+def test_transformer_restart_first_window_matches_full_prefix() -> None:
+    mixture = make_two_source_mixture(0.35)
+    batch = mixture.sample(4, 10, seed=17)
+    model = TransformerPredictor(4, width=8, heads=2, max_length=10).eval()
+    full = collect_activations(model, batch, mixture)
+    restarted = collect_restart_activations(model, batch, full, window=8, batch_windows=3)
+    aligned = aligned_full_table(full, window=8)
+    np.testing.assert_allclose(restarted.logits[::2], aligned.logits[::2], atol=1e-6)
+    np.testing.assert_allclose(restarted.hidden[::2], aligned.hidden[::2], atol=1e-6)
 
 
 def test_oracle_window_beliefs_match_first_full_prefix() -> None:
