@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from nonergodic_memory.figures import _load_records, generate_figures
+from nonergodic_memory.experiment import load_config, train_one
 
 
 ROOT = Path(__file__).parents[1]
@@ -13,7 +14,7 @@ ROOT = Path(__file__).parents[1]
 
 def test_entrypoints_have_help() -> None:
     environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
-    for script in ("train.py", "probe.py", "intervene.py"):
+    for script in ("train.py", "probe.py", "intervene.py", "context_restart.py"):
         completed = subprocess.run(
             [sys.executable, str(ROOT / "src" / script), "--help"],
             env=environment,
@@ -23,6 +24,32 @@ def test_entrypoints_have_help() -> None:
         )
         assert completed.returncode == 0
         assert "--config" in completed.stdout
+
+
+def test_context_restart_cli_writes_aligned_raw_records(tmp_path: Path) -> None:
+    config_path = ROOT / "configs" / "smoke.yaml"
+    checkpoint_root = tmp_path / "checkpoints"
+    train_one(load_config(config_path), "gru", seed=0, output_dir=checkpoint_root / "smoke")
+    output = tmp_path / "restart.jsonl"
+    completed = subprocess.run(
+        [
+            sys.executable, str(ROOT / "src" / "context_restart.py"),
+            "--configs", str(config_path), "--models", "gru", "--seeds", "0",
+            "--window", "8", "--checkpoint-root", str(checkpoint_root),
+            "--results", str(output),
+        ],
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    rows = [json.loads(line) for line in output.read_text().splitlines()]
+    assert len(rows) == 9
+    model_rows = [r for r in rows if r["record_type"] == "context_restart"]
+    assert {r["context"] for r in model_rows} == {"full", "restart_8"}
+    assert {r["control"] for r in model_rows} == {"none", "shuffled_labels"}
+    assert {r["training_condition"] for r in model_rows} == {"trained", "untrained"}
+    assert all(r["positions_evaluated"] == 4 and r["window"] == 8 for r in rows)
+    assert {r["record_type"] for r in rows} == {"context_restart", "context_oracle"}
 
 
 def test_figures_are_generated_only_from_jsonl(tmp_path: Path) -> None:
