@@ -52,9 +52,22 @@ class TransformerPredictor(nn.Module):
             diagonal=1,
         )
 
-    def forward_with_layers(self, tokens: Tensor) -> tuple[Tensor, list[Tensor]]:
+    def forward_with_layers(
+        self, tokens: Tensor, position_offsets: Tensor | None = None
+    ) -> tuple[Tensor, list[Tensor]]:
         positions = torch.arange(tokens.shape[1], device=tokens.device)
-        hidden = self.token_embedding(tokens) + self.position_embedding(positions)[None, :, :]
+        if position_offsets is None:
+            embedded_positions = self.position_embedding(positions)[None, :, :]
+        else:
+            if position_offsets.shape != (tokens.shape[0],):
+                raise ValueError("position offsets must have one entry per sequence")
+            absolute_positions = positions[None, :] + position_offsets[:, None]
+            if torch.any(absolute_positions < 0) or torch.any(
+                absolute_positions >= self.position_embedding.num_embeddings
+            ):
+                raise ValueError("position offsets exceed the model position range")
+            embedded_positions = self.position_embedding(absolute_positions)
+        hidden = self.token_embedding(tokens) + embedded_positions
         mask = self._causal_mask(tokens.shape[1], tokens.device)
         activations: list[Tensor] = []
         for block in self.blocks.layers:
@@ -76,8 +89,10 @@ class TransformerPredictor(nn.Module):
             hidden = self.norm(hidden)
         return self.output(hidden), hidden
 
-    def forward(self, tokens: Tensor) -> tuple[Tensor, Tensor]:
-        logits, activations = self.forward_with_layers(tokens)
+    def forward(
+        self, tokens: Tensor, position_offsets: Tensor | None = None
+    ) -> tuple[Tensor, Tensor]:
+        logits, activations = self.forward_with_layers(tokens, position_offsets)
         return logits, activations[-1]
 
 

@@ -15,13 +15,13 @@ import numpy as np
 
 def _validated_cells(
     records: list[dict],
+    models: tuple[str, ...] = ("gru", "transformer"),
+    contexts: tuple[str, ...] = ("full", "restart_8"),
 ) -> tuple[dict[tuple[str, int, float, str, str, str], dict],
            dict[tuple[int, float], dict]]:
-    models = ("gru", "transformer")
     seeds = (0, 1, 2)
     overlaps = (0.0, 0.35)
     conditions = ("trained", "untrained")
-    contexts = ("full", "restart_8")
     controls = ("none", "shuffled_labels")
     model_cells: dict[tuple[str, int, float, str, str, str], dict] = {}
     oracle_cells: dict[tuple[int, float], dict] = {}

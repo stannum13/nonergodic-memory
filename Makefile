@@ -1,4 +1,4 @@
-.PHONY: smoke train reproduce extension figures sweep-overlap sweep-length sweep-components sweep-width sweep-depth sweep-interaction sweep-context-restart test clean-results
+.PHONY: smoke train reproduce extension figures sweep-overlap sweep-length sweep-components sweep-width sweep-depth sweep-interaction sweep-context-restart sweep-position-restart test clean-results
 
 PYTHON ?= python3
 export PYTHONPATH := src:$(PYTHONPATH)
@@ -38,6 +38,9 @@ sweep-interaction:
 
 sweep-context-restart:
 	bash scripts/sweep_context_restart.sh
+
+sweep-position-restart:
+	bash scripts/sweep_position_restart.sh
 
 test:
 	pytest -q
