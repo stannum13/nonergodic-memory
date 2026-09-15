@@ -21,4 +21,4 @@ The prediction is partially supported for component belief: linear recovery and 
 
 ## Next smallest experiment
 
-The planned one-axis sweeps are complete. The next smallest discriminating experiment, if extending the artifact, is a preregistered 2×2 overlap-by-context grid to test whether the observed temporal-integration gain is specifically largest at intermediate source overlap rather than an additive artifact. No result is claimed for that unrun interaction.
+Registered before running: a fresh 2×2 overlap-by-context grid with overlap 0.00/0.35 and lengths 8/64, both models, seeds 0/1/2, and identical 512-sequence/12-epoch CPU compute per cell. For each model define held-out component-posterior training gain `G(o,L) = R²_trained(o,L) − R²_untrained(o,L)`. Primary prediction: paired interaction `I = [G(0.35,64) − G(0.35,8)] − [G(0.00,64) − G(0.00,8)] > 0`. This specifically tests whether temporal-integration gain is larger at intermediate overlap than at disjoint emissions. The full conditional-state-posterior gain and learned-minus-norm-matched component-erasure damage are secondary diagnostics. No result is claimed for this unrun grid.
