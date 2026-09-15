@@ -15,12 +15,15 @@ import numpy as np
 from .position_figures import _cells
 
 
-def _short_cells(short_records: list[dict], long_records: list[dict]) -> tuple[dict, dict, dict]:
+def _short_cells(
+    short_records: list[dict], long_records: list[dict],
+    expected_type: str = "short_context", expected_condition: str = "short_trained",
+) -> tuple[dict, dict, dict]:
     long_cells, oracle = _cells(long_records)
     cells = {}
     short_provenance = {}
     for row in short_records:
-        if row.get("record_type") != "short_context":
+        if row.get("record_type") != expected_type:
             continue
         seed = int(row["seed"])
         overlap = float(row["overlap"])
@@ -38,7 +41,7 @@ def _short_cells(short_records: list[dict], long_records: list[dict]) -> tuple[d
         short_provenance[overlap] = short_identity
         if (
             row.get("model") != "transformer"
-            or row.get("training_condition") != "short_trained"
+            or row.get("training_condition") != expected_condition
             or row.get("context") != "restart_8"
             or row.get("short_training_sequence_length") != 9
             or row.get("short_training_input_positions") != 8
@@ -53,6 +56,14 @@ def _short_cells(short_records: list[dict], long_records: list[dict]) -> tuple[d
             or not row.get("probe_fit_independent")
         ):
             raise ValueError("short context evidence violates registered protocol")
+        if expected_type == "budget_context" and (
+            row.get("training_protocol") != "token_and_step_matched"
+            or row.get("short_training_sequences") != 4032
+            or row.get("short_training_batch_size") != 504
+            or row.get("supervised_tokens_per_epoch") != 32256
+            or row.get("optimizer_steps") != 96
+        ):
+            raise ValueError("budget short context violates token-and-step protocol")
         key = (seed, overlap, control)
         if key in cells:
             raise ValueError(f"duplicate short context cell: {key}")

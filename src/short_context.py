@@ -28,17 +28,34 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     parser.add_argument("--checkpoint-root", default="checkpoints/sweeps")
     parser.add_argument("--results", default="results/sweep_short_context.jsonl")
+    parser.add_argument("--protocol", choices=["standard", "budget"], default="standard")
     return parser.parse_args()
 
 
-def _check_matched(eval_config: dict, short_config: dict) -> None:
+def _check_matched(eval_config: dict, short_config: dict, protocol: str = "standard") -> None:
     if int(eval_config["data"]["sequence_length"]) != 64:
         raise ValueError("evaluation context must have sequence length 64")
     if int(short_config["data"]["sequence_length"]) != 9:
         raise ValueError("short training must have length 9 to supply eight input positions")
-    adjusted = {**short_config, "data": {**short_config["data"], "sequence_length": 64}}
+    if protocol == "budget":
+        if (
+            int(eval_config["data"]["train_sequences"]) != 512
+            or int(eval_config["train"]["batch_size"]) != 64
+            or int(short_config["data"]["train_sequences"]) != 4032
+            or int(short_config["train"]["batch_size"]) != 504
+            or int(eval_config["train"]["epochs"]) != 12
+            or int(short_config["train"]["epochs"]) != 12
+        ):
+            raise ValueError("budget protocol requires 512/64 long and 4032/504 short batches")
+        adjusted = {
+            **short_config,
+            "data": {**short_config["data"], "sequence_length": 64, "train_sequences": 512},
+            "train": {**short_config["train"], "batch_size": 64},
+        }
+    else:
+        adjusted = {**short_config, "data": {**short_config["data"], "sequence_length": 64}}
     if adjusted != eval_config:
-        raise ValueError("short and evaluation configs must differ only in sequence length")
+        raise ValueError(f"{protocol} short and evaluation configs violate their matched protocol")
 
 
 def main() -> None:
@@ -49,7 +66,7 @@ def main() -> None:
     for eval_path, short_path in zip(args.eval_configs, args.short_configs):
         config = load_config(eval_path)
         short_config = load_config(short_path)
-        _check_matched(config, short_config)
+        _check_matched(config, short_config, args.protocol)
         mixture = mixture_from_config(config)
         eval_name, short_name = Path(eval_path).stem, Path(short_path).stem
         digest, short_digest = config_digest(config), config_digest(short_config)
@@ -72,8 +89,10 @@ def main() -> None:
                     test_table.hidden, test_table.logits, test_table, probes
                 )
                 record = {
-                    "record_type": "short_context", "model": "transformer",
-                    "training_condition": "short_trained", "context": "restart_8",
+                    "record_type": "budget_context" if args.protocol == "budget" else "short_context",
+                    "model": "transformer",
+                    "training_condition": "budget_short_trained" if args.protocol == "budget" else "short_trained",
+                    "context": "restart_8",
                     "control": control, "seed": seed, "device": "cpu",
                     "config": eval_name, "config_sha256": digest,
                     "short_config": short_name, "short_config_sha256": short_digest,
@@ -89,6 +108,13 @@ def main() -> None:
                     "state_posterior_target": "all_component_conditionals",
                     "model_width": int(config["model"]["width"]),
                     "components": int(config["data"].get("components", 2)),
+                    **({
+                        "training_protocol": "token_and_step_matched",
+                        "short_training_sequences": 4032,
+                        "short_training_batch_size": 504,
+                        "supervised_tokens_per_epoch": 32256,
+                        "optimizer_steps": 96,
+                    } if args.protocol == "budget" else {}),
                     **provenance, **probes.metrics,
                     "nll": behavior["nll"], "kl_exact": behavior["kl_exact"],
                 }
