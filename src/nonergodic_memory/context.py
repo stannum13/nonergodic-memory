@@ -10,7 +10,7 @@ from numpy.lib.stride_tricks import sliding_window_view
 from torch import nn
 
 from .analysis import ActivationTable
-from .data.hmm import FilterResult, HMMMixture, SequenceBatch
+from .data.hmm import FilterResult, HMM, HMMMixture, SequenceBatch
 
 
 def aligned_full_table(table: ActivationTable, window: int) -> ActivationTable:
@@ -58,15 +58,37 @@ def oracle_window_beliefs(
     mixture: HMMMixture,
     window: int,
 ) -> FilterResult:
-    """Exact Bayes beliefs after filtering each isolated restart window."""
+    """Exact Bayes from the last window and its known elapsed start position."""
     inputs = batch.tokens[:, :-1]
     if not 1 <= window <= inputs.shape[1]:
         raise ValueError("window outside observed position range")
-    windows = sliding_window_view(inputs, window_shape=window, axis=1)
-    flat = windows.reshape(-1, window).copy()
-    trace = mixture.filter(flat)
+    n_sequences = inputs.shape[0]
+    n_windows = inputs.shape[1] - window + 1
+    n_components = len(mixture.components)
+    component = np.empty((n_sequences, n_windows, n_components), dtype=np.float64)
+    state = np.empty(
+        (n_sequences, n_windows, n_components, mixture.max_states), dtype=np.float64
+    )
+    predictive = np.empty((n_sequences, n_windows, mixture.vocab_size), dtype=np.float64)
+    elapsed_priors = [hmm.initial.copy() for hmm in mixture.components]
+    for start in range(n_windows):
+        shifted = HMMMixture(
+            [
+                HMM(hmm.transition, hmm.emission, prior)
+                for hmm, prior in zip(mixture.components, elapsed_priors)
+            ],
+            mixture.weights,
+        )
+        trace = shifted.filter(inputs[:, start : start + window])
+        component[:, start] = trace.component_posterior[:, -1]
+        state[:, start] = trace.state_posterior[:, -1]
+        predictive[:, start] = trace.predictive[:, -1]
+        elapsed_priors = [
+            prior @ hmm.transition
+            for hmm, prior in zip(mixture.components, elapsed_priors)
+        ]
     return FilterResult(
-        component_posterior=trace.component_posterior[:, -1],
-        state_posterior=trace.state_posterior[:, -1],
-        predictive=trace.predictive[:, -1],
+        component_posterior=component.reshape(-1, n_components),
+        state_posterior=state.reshape(-1, n_components, mixture.max_states),
+        predictive=predictive.reshape(-1, mixture.vocab_size),
     )
