@@ -5,8 +5,10 @@ import subprocess
 import sys
 
 import yaml
+import pytest
 
 from nonergodic_memory.experiment import load_config, train_one
+from short_context import _check_matched
 
 
 ROOT = Path(__file__).parents[1]
@@ -42,3 +44,18 @@ def test_short_context_cli_writes_aligned_independent_raw_records(tmp_path: Path
     assert all(row["probe_fit_data_seed"] == 909 and row["test_data_seed"] == 1009 for row in rows)
     assert all(row["short_training_sequence_length"] == 9 and row["sequence_length"] == 64 for row in rows)
     assert all(row["probe_fit_independent"] and row["short_config_sha256"] != row["config_sha256"] for row in rows)
+
+
+def test_budget_protocol_matches_exact_tokens_and_optimizer_steps() -> None:
+    eval_config = load_config(ROOT / "configs" / "sweeps" / "interaction_o035_l064.yaml")
+    budget_config = load_config(ROOT / "configs" / "sweeps" / "budget_o035_l009.yaml")
+    _check_matched(eval_config, budget_config, "budget")
+    assert budget_config["data"]["train_sequences"] * 8 == eval_config["data"]["train_sequences"] * 63
+    assert budget_config["data"]["train_sequences"] // budget_config["train"]["batch_size"] == 8
+    broken = {**budget_config, "train": {**budget_config["train"], "batch_size": 503}}
+    with pytest.raises(ValueError, match="budget"):
+        _check_matched(eval_config, broken, "budget")
+    short_epochs = {**budget_config, "train": {**budget_config["train"], "epochs": 8}}
+    long_epochs = {**eval_config, "train": {**eval_config["train"], "epochs": 8}}
+    with pytest.raises(ValueError, match="budget"):
+        _check_matched(long_epochs, short_epochs, "budget")
