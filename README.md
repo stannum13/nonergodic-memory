@@ -67,3 +67,5 @@ After observing token `x_t`, the filter stores the component posterior `p(c | x_
 ## Reproducibility boundary
 
 Runs are deterministic on the tested CPU environment: data, initialization, batch order, probes, and random controls all use explicit seeds. Checkpoints are generated rather than versioned and are validated against the complete requested configuration, model, and seed before analysis. Partial CLI reruns atomically replace only matching model/seed cells. Raw records include a config hash and Python, NumPy, and PyTorch versions. Exact bitwise equality across different PyTorch/BLAS versions is not promised.
+
+A final checkpoint-free clone audit ran every project command above, all eleven sweeps, and 65 tests. Numerical JSONL values reproduced exactly and every figure was byte-identical on the recorded CPU environment; details are in `report.md`.
