@@ -31,6 +31,7 @@ make sweep-context-restart # length-64 models: full prefix vs last 8 tokens, exa
 make sweep-position-restart # Transformer: last 8 tokens with reset vs original position indices
 make sweep-short-context # length-9-trained Transformer on the same held-out eight-token windows
 make sweep-budget-context # short training matched to long model's token and optimizer-step budgets
+make sweep-gru-budget-context # GRU architecture check of the matched-budget effect
 pytest -q
 ```
 
@@ -55,6 +56,7 @@ pytest -q
 - `results/sweep_position_restart.jsonl` and `figures/sweep_position_restart.png`: position-preserving Transformer restart control.
 - `results/sweep_short_context*.jsonl` and `figures/sweep_short_context.png`: short-input training control joined to the published position-restart raw file.
 - `results/sweep_budget_context*.jsonl` and `figures/sweep_budget_context.png`: token/step-matched short-input training control, joined to the two prior raw files.
+- `results/sweep_gru_*context*.jsonl` and `figures/sweep_gru_budget_context.png`: GRU architecture-generalization check for matched training exposure.
 - `STATE.md`: the current hypothesis → experiment → interpretation loop.
 - `report.md`: methods, results, negative results, and limitations.
 
