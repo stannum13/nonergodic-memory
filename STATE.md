@@ -6,18 +6,18 @@ Small next-token predictors trained on a fixed-component HMM mixture should expo
 
 ## Last experiment
 
-Token- and optimizer-step-matched length-nine Transformer training control, registered at `b115b52` and planned at `403162a` before any result. Used 4,032 sequences/batch 504 versus long training's 512 sequences/batch 64, giving exactly 32,256 supervised tokens and eight optimizer steps per epoch for both models across 12 epochs. Reused the same length-64 held-out reset-index eight-token windows, full-history Bayes targets, seeds 0/1/2, and overlap 0/.35. Six CPU training and 12 independent-probe budget cells were saved.
+GRU architecture-generalization of the token/step-matched short-training control, registered at `534747d` and planned at `97805c5` before running. At overlap .35, seeds 0/1/2, compared standard length-nine GRU training (512 sequences/batch 64) with budget matching (4,032/batch 504), then evaluated identical held-out length-64 last-eight-token windows against full-history Bayes targets. Six CPU training and 12 independent-probe evaluation cells were saved across the two protocols.
 
 ## Result
 
-- The registered budget-minus-standard-short KL contrast at overlap .35 is negative for all seeds: −0.0611/−0.0283/−0.0189 nats, mean −0.0361 ± 0.0181. NLL improves by −0.0347 ± 0.0149 and component R² by +0.053 ± 0.021. At overlap 0, KL improves by −0.0291 ± 0.0026.
-- Budget-minus-long-reset KL at overlap .35 is −0.0177/+0.0006/−0.0012 nats; mean budget-short KL 0.0340 versus standard-short 0.0701, long reset 0.0401, exact eight-token Bayes information-loss floor 0.0225. Shuffled-label component R² remains within ±0.017.
-- The previous fixed-sequence-count short-training prediction failed, but matching supervised tokens and steps removes most of its predictive penalty. Larger batch size and greater training-sequence diversity change with budget and remain alternative explanations.
+- The registered GRU `KL_standard_short − KL_budget_short > 0` contrast is positive in every seed: +0.00511/+0.00487/+0.00635 nats, mean +0.00544 ± 0.00065. NLL reduction is +0.00594 ± 0.00175 and component R² gain +0.00765 ± 0.00213.
+- Budget-short GRU KL is 0.0269 ± 0.0014 versus standard-short 0.0323 ± 0.0019, long restart 0.0290 ± 0.0018, and exact eight-token Bayes information loss 0.0225 ± 0.0016. Conditional-state R² gain is −0.00013 ± 0.00041; shuffled-label component R² is within ±0.018.
+- The matched-exposure effect generalizes across both architectures, with a smaller GRU magnitude. Token count, batch size, and sequence diversity remain bundled.
 
 ## Interpretation
 
-The budget-matched follow-up supports the registered prediction and overturns the temptation to attribute fixed-count short-model failure to long-context training alone. Equal token/step budgets, larger short-model batches, and more diverse short training data jointly explain its improvement; no single factor is isolated. The full-prefix versus window history contrast still follows the exact Bayesian information-loss oracle, so remote tokens matter for component belief. State-probe effects and subspace erasure remain nonselective/seed-sensitive; no stable selectively necessary activation subspace is established.
+The registered exposure-matching effect generalizes from Transformer to GRU. Fixed-count short-model failure cannot be attributed to long-context training alone; equal token/step budgets, larger batches, and more diverse data jointly improve window prediction. The full-prefix versus window history contrast still follows the exact Bayesian information-loss oracle, so remote tokens matter for component belief. State-probe effects and subspace erasure remain nonselective/seed-sensitive; no stable selectively necessary activation subspace is established.
 
 ## Next smallest experiment
 
-Register before running: train both fixed-count (512 sequences/batch 64) and token/step-matched (4,032 sequences/batch 504) length-nine GRUs at overlap .35, then compare them to the published length-64 GRU restarts on the same seeds, held-out windows, and exact Bayes targets. Prediction: `KL_standard_short − KL_budget_short > 0` in all seeds if the exposure effect is architecture-general; conditional-state probe behavior is secondary. This is an unrun architecture check, not a claimed result.
+No additional scientific result is registered. The next smallest task is operational: reproduce the required commands and every published sweep from a fresh clone with no checkpoints, compare regenerated JSONL/figures to the committed artifact, and record any environment-level numerical drift without silently replacing the published evidence.
