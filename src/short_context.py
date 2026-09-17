@@ -29,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint-root", default="checkpoints/sweeps")
     parser.add_argument("--results", default="results/sweep_short_context.jsonl")
     parser.add_argument("--protocol", choices=["standard", "budget"], default="standard")
+    parser.add_argument("--model", choices=["gru", "transformer"], default="transformer")
     return parser.parse_args()
 
 
@@ -76,8 +77,8 @@ def main() -> None:
             train_batch = mixture.sample(int(config["probe"]["train_sequences"]), 64, seed + 909)
             test_batch = mixture.sample(int(config["probe"]["test_sequences"]), 64, seed + 1009)
             _, model = load_checkpoint(
-                Path(args.checkpoint_root) / short_name / f"transformer_seed{seed}.pt",
-                short_config, "transformer", seed,
+                Path(args.checkpoint_root) / short_name / f"{args.model}_seed{seed}.pt",
+                short_config, args.model, seed,
             )
             full_train = collect_activations(model, train_batch, mixture)
             full_test = collect_activations(model, test_batch, mixture, sequence_offset=1_000_000)
@@ -90,7 +91,7 @@ def main() -> None:
                 )
                 record = {
                     "record_type": "budget_context" if args.protocol == "budget" else "short_context",
-                    "model": "transformer",
+                    "model": args.model,
                     "training_condition": "budget_short_trained" if args.protocol == "budget" else "short_trained",
                     "context": "restart_8",
                     "control": control, "seed": seed, "device": "cpu",
@@ -124,7 +125,7 @@ def main() -> None:
                         f"{short_name} seed={seed} overlap={record['overlap']} "
                         f"R2={record['component_posterior_r2']:.3f} KL={record['kl_exact']:.4f}"
                     )
-        replace_jsonl_runs(args.results, records, eval_name, ["transformer"], args.seeds)
+        replace_jsonl_runs(args.results, records, eval_name, [args.model], args.seeds)
 
 
 if __name__ == "__main__":

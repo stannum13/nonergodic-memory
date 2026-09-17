@@ -12,3 +12,4 @@ python -m nonergodic_memory.context_figures
 python -m nonergodic_memory.position_figures
 python -m nonergodic_memory.short_figures
 python -m nonergodic_memory.budget_figures
+python -m nonergodic_memory.gru_budget_figures
