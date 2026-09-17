@@ -20,4 +20,4 @@ The registered exposure-matching effect generalizes from Transformer to GRU. Fix
 
 ## Next smallest experiment
 
-No additional scientific result is registered. The next smallest task is operational: reproduce the required commands and every published sweep from a fresh clone with no checkpoints, compare regenerated JSONL/figures to the committed artifact, and record any environment-level numerical drift without silently replacing the published evidence.
+No additional scientific result is registered. The operational fresh-clone audit is complete: all required commands, eleven sweeps, and 65 tests passed without checkpoints; numerical records matched exactly, figures were byte-identical, and nine schema-only provenance drifts were corrected. Further work should begin with a new preregistered scientific question rather than extending the current loop post hoc.
