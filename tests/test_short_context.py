@@ -59,3 +59,28 @@ def test_budget_protocol_matches_exact_tokens_and_optimizer_steps() -> None:
     long_epochs = {**eval_config, "train": {**eval_config["train"], "epochs": 8}}
     with pytest.raises(ValueError, match="budget"):
         _check_matched(long_epochs, short_epochs, "budget")
+
+
+def test_short_context_cli_supports_gru(tmp_path: Path) -> None:
+    base = load_config(ROOT / "configs" / "smoke.yaml")
+    short = {**base, "data": {**base["data"], "sequence_length": 9}}
+    long = {**base, "data": {**base["data"], "sequence_length": 64}}
+    short_path, long_path = tmp_path / "short.yaml", tmp_path / "long.yaml"
+    short_path.write_text(yaml.safe_dump(short))
+    long_path.write_text(yaml.safe_dump(long))
+    checkpoint_root = tmp_path / "checkpoints"
+    train_one(short, "gru", seed=0, output_dir=checkpoint_root / "short")
+    output = tmp_path / "gru.jsonl"
+    completed = subprocess.run(
+        [
+            sys.executable, str(ROOT / "src" / "short_context.py"),
+            "--eval-configs", str(long_path), "--short-configs", str(short_path),
+            "--model", "gru", "--seeds", "0", "--checkpoint-root", str(checkpoint_root),
+            "--results", str(output),
+        ],
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    rows = [json.loads(line) for line in output.read_text().splitlines()]
+    assert len(rows) == 2 and {row["model"] for row in rows} == {"gru"}
