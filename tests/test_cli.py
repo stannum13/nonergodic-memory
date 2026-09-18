@@ -63,11 +63,63 @@ def test_mess3_cli_records_generator_without_fabricated_overlap(tmp_path: Path) 
         env=environment, capture_output=True, text=True, check=False,
     )
     assert probe.returncode == 0, probe.stderr
+    geometry = [json.loads(line) for line in probe_results.read_text().splitlines()
+                if json.loads(line)["record_type"] == "mess3_geometry"]
+    assert len(geometry) == 16 * 7
+    assert all(row["training_condition"] == "trained" for row in geometry)
+    assert all(row["sequence_id"] >= 1_000_000 for row in geometry)
+    assert all(row["config_sha256"] and row["python_version"] and row["numpy_version"]
+               and row["torch_version"] for row in geometry)
+    for row in geometry:
+        assert all(f"{prefix}_b{i}" in row for prefix in ("exact", "pred") for i in range(6))
+        assert sum(row[f"exact_b{i}"] for i in range(6)) == pytest.approx(1.)
     for path in (training_results, probe_results):
         rows = [json.loads(line) for line in path.read_text().splitlines()]
         assert rows
         assert all(row["generator"] == "mess3" for row in rows)
         assert all("overlap" not in row for row in rows)
+
+
+@pytest.mark.parametrize("cache", ["complete", "absent", "partial"])
+def test_mess3_reproduction_script_reuses_only_complete_runs(tmp_path: Path, cache: str) -> None:
+    # Stub the interpreter boundary: exercise real shell orchestration without
+    # running the full three-seed experiment in the CLI test suite.
+    executable = tmp_path / "python"
+    log = tmp_path / "commands.jsonl"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "args = sys.argv[1:]\n"
+        "with open(os.environ['COMMAND_LOG'], 'a') as handle:\n"
+        "    handle.write(json.dumps(args) + '\\n')\n"
+        "if len(args) > 1 and args[1] in ('nonergodic_memory.checkpoints', 'nonergodic_memory.training_records'):\n"
+        "    seed = args[args.index('--seeds') + 1]\n"
+        "    cache = os.environ['CACHE_STATE']\n"
+        "    if cache == 'absent' or (cache == 'partial' and\n"
+        "        ((seed == '1' and args[1].endswith('checkpoints')) or\n"
+        "         (seed == '2' and args[1].endswith('training_records')))):\n"
+        "        sys.exit(1)\n"
+    )
+    executable.chmod(0o755)
+    completed = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "reproduce_mess3.sh")], cwd=ROOT,
+        env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
+             "COMMAND_LOG": str(log), "CACHE_STATE": cache},
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    commands = [json.loads(line) for line in log.read_text().splitlines()]
+    trains = [args for args in commands if args[0] == "src/train.py"]
+    assert [args[args.index("--seeds") + 1] for args in trains] == {
+        "complete": [], "absent": ["0", "1", "2"], "partial": ["1", "2"]
+    }[cache]
+    assert all(args[args.index("--models") + 1] == "transformer" for args in trains)
+    assert all(args[args.index("--results") + 1] == "results/mess3_training.jsonl" for args in trains)
+    probe = next(args for args in commands if args[0] == "src/probe.py")
+    assert probe[probe.index("--seeds") + 1:probe.index("--seeds") + 4] == ["0", "1", "2"]
+    assert probe[probe.index("--models") + 1] == "transformer"
+    assert probe[probe.index("--results") + 1] == "results/mess3_reproduction.jsonl"
+    assert commands[-1][:2] == ["-m", "nonergodic_memory.mess3_figures"]
 
 
 def test_context_restart_cli_writes_aligned_raw_records(tmp_path: Path) -> None:

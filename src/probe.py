@@ -6,7 +6,9 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from nonergodic_memory.analysis import collect_activations, fit_probes, pca_records
+import numpy as np
+
+from nonergodic_memory.analysis import ActivationTable, collect_activations, fit_probes, pca_records
 from nonergodic_memory.experiment import (
     config_digest,
     generator_name,
@@ -18,6 +20,24 @@ from nonergodic_memory.experiment import (
     set_seed,
 )
 from nonergodic_memory.models.sequence import build_model
+
+
+def mess3_geometry_records(table: ActivationTable, joint_regression: object) -> list[dict]:
+    """Preserve six joint coordinates for at most 2,000 held-out observations."""
+    if table.joint_belief is None or table.joint_belief.shape[1] != 6:
+        raise ValueError("Mess3 geometry requires six-coordinate joint beliefs")
+    selected = np.linspace(0, len(table.hidden) - 1, min(2000, len(table.hidden)), dtype=int)
+    predicted = joint_regression.predict(table.hidden[selected])
+    return [
+        {
+            "component": int(table.components[index]),
+            "position": int(table.positions[index]),
+            "sequence_id": int(table.sequence_ids[index]),
+            **{f"exact_b{i}": float(table.joint_belief[index, i]) for i in range(6)},
+            **{f"pred_b{i}": float(predicted[row, i]) for i in range(6)},
+        }
+        for row, index in enumerate(selected)
+    ]
 
 
 def parse_args() -> argparse.Namespace:
@@ -111,6 +131,26 @@ def main() -> None:
                     }
                 )
                 if condition == "trained":
+                    if source_generator == "mess3":
+                        for point in mess3_geometry_records(test_table, bundle.joint_regression):
+                            records.append(
+                                {
+                                    "record_type": "mess3_geometry",
+                                    "model": model_name,
+                                    "seed": seed,
+                                    "training_condition": condition,
+                                    "control": "none",
+                                    "device": "cpu",
+                                    "config": config_name,
+                                    "config_sha256": config_sha256,
+                                    "generator": source_generator,
+                                    "sequence_length": int(config["data"]["sequence_length"]),
+                                    "components": len(mixture.components),
+                                    "model_width": int(config["model"]["width"]),
+                                    **point,
+                                    **provenance,
+                                }
+                            )
                     points, variance = pca_records(test_table)
                     for point in points:
                         records.append(
