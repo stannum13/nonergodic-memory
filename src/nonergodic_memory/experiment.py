@@ -15,7 +15,7 @@ import torch.nn.functional as F
 import yaml
 from torch import Tensor, nn
 
-from .data.hmm import HMMMixture, SequenceBatch, make_source_mixture
+from .data.hmm import HMMMixture, SequenceBatch, make_mess3_mixture, make_source_mixture
 from .models.sequence import build_model
 
 
@@ -103,11 +103,20 @@ def tensor_sequences(batch: SequenceBatch) -> tuple[Tensor, Tensor]:
     return tokens[:, :-1], tokens[:, 1:]
 
 
+def generator_name(config: dict) -> str:
+    return str(config["data"].get("generator", "simple"))
+
+
 def mixture_from_config(config: dict) -> HMMMixture:
     data = config["data"]
-    return make_source_mixture(
-        n_components=int(data.get("components", 2)), overlap=float(data["overlap"])
-    )
+    generator = generator_name(config)
+    if generator == "mess3":
+        return make_mess3_mixture()
+    if generator == "simple":
+        return make_source_mixture(
+            n_components=int(data.get("components", 2)), overlap=float(data["overlap"])
+        )
+    raise ValueError(f"unknown data generator: {generator}")
 
 
 @torch.no_grad()
@@ -134,6 +143,7 @@ def train_one(
 ) -> tuple[dict, nn.Module]:
     set_seed(seed)
     data_config = config["data"]
+    source_generator = generator_name(config)
     mixture = mixture_from_config(config)
     train_batch = mixture.sample(
         int(data_config["train_sequences"]), int(data_config["sequence_length"]), seed + 101
@@ -166,7 +176,8 @@ def train_one(
         "model": model_name,
         "seed": seed,
         "device": "cpu",
-        "overlap": float(data_config["overlap"]),
+        "generator": source_generator,
+        **({"overlap": float(data_config["overlap"])} if "overlap" in data_config else {}),
         "sequence_length": int(data_config["sequence_length"]),
         "train_sequences": int(data_config["train_sequences"]),
         "components": int(data_config.get("components", 2)),

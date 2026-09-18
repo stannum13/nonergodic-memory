@@ -4,6 +4,7 @@ import subprocess
 import sys
 from pathlib import Path
 import pytest
+import yaml
 
 from nonergodic_memory.figures import _load_records, generate_figures
 from nonergodic_memory.experiment import load_config, train_one
@@ -24,6 +25,49 @@ def test_entrypoints_have_help() -> None:
         )
         assert completed.returncode == 0
         assert "--config" in completed.stdout
+
+
+def test_mess3_cli_records_generator_without_fabricated_overlap(tmp_path: Path) -> None:
+    config = {
+        "data": {
+            "generator": "mess3",
+            "sequence_length": 8,
+            "train_sequences": 32,
+            "test_sequences": 16,
+        },
+        "model": {"width": 12, "layers": 1, "heads": 2},
+        "train": {"epochs": 1, "batch_size": 16, "learning_rate": 0.02},
+        "probe": {"train_sequences": 16, "test_sequences": 16},
+    }
+    config_path = tmp_path / "mess3.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    checkpoint_dir = tmp_path / "checkpoints"
+    training_results = tmp_path / "training.jsonl"
+    environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    train = subprocess.run(
+        [
+            sys.executable, str(ROOT / "src" / "train.py"), "--config", str(config_path),
+            "--models", "gru", "--seeds", "0", "--output-dir", str(checkpoint_dir),
+            "--results", str(training_results),
+        ],
+        env=environment, capture_output=True, text=True, check=False,
+    )
+    assert train.returncode == 0, train.stderr
+    probe_results = tmp_path / "probe.jsonl"
+    probe = subprocess.run(
+        [
+            sys.executable, str(ROOT / "src" / "probe.py"), "--config", str(config_path),
+            "--models", "gru", "--seeds", "0", "--checkpoint-dir", str(checkpoint_dir),
+            "--results", str(probe_results),
+        ],
+        env=environment, capture_output=True, text=True, check=False,
+    )
+    assert probe.returncode == 0, probe.stderr
+    for path in (training_results, probe_results):
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        assert rows
+        assert all(row["generator"] == "mess3" for row in rows)
+        assert all("overlap" not in row for row in rows)
 
 
 def test_context_restart_cli_writes_aligned_raw_records(tmp_path: Path) -> None:
