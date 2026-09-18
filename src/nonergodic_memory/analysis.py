@@ -34,6 +34,7 @@ class ActivationTable:
     targets: IntArray
     sequence_ids: IntArray
     positions: IntArray
+    joint_belief: FloatArray | None = None
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class ProbeBundle:
     component_regression: object
     state_regression: object
     metrics: dict[str, float]
+    joint_regression: object | None = None
 
 
 @torch.no_grad()
@@ -68,6 +70,9 @@ def _make_activation_table(
     inputs = batch.tokens[:, :-1]
     n_sequences, positions = inputs.shape
     exact = mixture.filter(batch.tokens[:, :-1])
+    joint_belief = (
+        exact.component_posterior[:, :, :, None] * exact.state_posterior
+    ).reshape(-1, len(mixture.components) * mixture.max_states)
     component_grid = np.repeat(batch.components[:, None], positions, axis=1)
     state_grid = batch.states[:, :-1]
     return ActivationTable(
@@ -79,6 +84,7 @@ def _make_activation_table(
         state_posterior=exact.state_posterior.reshape(
             -1, len(mixture.components) * mixture.max_states
         ),
+        joint_belief=joint_belief,
         predictive=exact.predictive.reshape(-1, mixture.vocab_size),
         targets=batch.tokens[:, 1:].reshape(-1).astype(np.int64),
         sequence_ids=np.repeat(np.arange(n_sequences) + sequence_offset, positions).astype(np.int64),
@@ -114,6 +120,39 @@ def _regressor() -> object:
     return make_pipeline(StandardScaler(), Ridge(alpha=1.0))
 
 
+def pairwise_distance_r2(
+    actual: FloatArray,
+    predicted: FloatArray,
+    seed: int,
+    max_pairs: int = 20_000,
+) -> float:
+    """Score predicted distances using a deterministic sample of unordered pairs."""
+    if actual.ndim != 2 or actual.shape != predicted.shape:
+        raise ValueError("actual and predicted must have the same two-dimensional shape")
+    n_points = len(actual)
+    if n_points < 2:
+        raise ValueError("at least two coordinates are required")
+
+    total_pairs = n_points * (n_points - 1) // 2
+    n_pairs = min(total_pairs, max_pairs)
+    if total_pairs > max_pairs:
+        pair_indices = np.random.default_rng(seed).choice(total_pairs, size=n_pairs, replace=False)
+    else:
+        pair_indices = np.arange(n_pairs)
+
+    # Pair indices enumerate rows of the upper triangle: (0, 1), (0, 2), ... .
+    diagonal = 2 * n_points - 1
+    first = ((diagonal - np.sqrt(diagonal**2 - 8 * pair_indices)) // 2).astype(np.int64)
+    starts = first * (2 * n_points - first - 1) // 2
+    first -= starts > pair_indices
+    starts = first * (2 * n_points - first - 1) // 2
+    second = first + 1 + pair_indices - starts
+
+    actual_distances = np.linalg.norm(actual[first] - actual[second], axis=1)
+    predicted_distances = np.linalg.norm(predicted[first] - predicted[second], axis=1)
+    return float(r2_score(actual_distances, predicted_distances))
+
+
 def fit_probes(
     train: ActivationTable,
     test: ActivationTable,
@@ -147,12 +186,22 @@ def fit_probes(
     component_regression = _regressor()
     component_targets = train.component_posterior.copy()
     state_targets = train.state_posterior.copy()
+    if train.joint_belief is None or test.joint_belief is None:
+        raise ValueError("joint belief targets are required for regression")
+    joint_targets = train.joint_belief.copy()
     if shuffle_labels:
         component_targets = component_targets[rng.permutation(len(component_targets))]
         state_targets = state_targets[rng.permutation(len(state_targets))]
+        joint_targets = joint_targets[rng.permutation(len(joint_targets))]
     component_regression.fit(train.hidden, component_targets)
     state_regression = _regressor()
     state_regression.fit(train.hidden, state_targets)
+    joint_regression = _regressor()
+    joint_regression.fit(train.hidden, joint_targets)
+
+    joint_prediction = joint_regression.predict(test.hidden)
+    joint_mse = float(np.mean((test.joint_belief - joint_prediction) ** 2))
+    joint_r2 = float(r2_score(test.joint_belief, joint_prediction))
 
     metrics = {
         "component_accuracy": float(component_accuracy),
@@ -161,6 +210,9 @@ def fit_probes(
             r2_score(test.component_posterior, component_regression.predict(test.hidden))
         ),
         "state_posterior_r2": float(r2_score(test.state_posterior, state_regression.predict(test.hidden))),
+        "joint_belief_r2": joint_r2,
+        "joint_belief_mse": joint_mse,
+        "joint_distance_r2": pairwise_distance_r2(test.joint_belief, joint_prediction, seed),
     }
     return ProbeBundle(
         component_probe,
@@ -168,6 +220,7 @@ def fit_probes(
         component_regression,
         state_regression,
         metrics,
+        joint_regression,
     )
 
 
