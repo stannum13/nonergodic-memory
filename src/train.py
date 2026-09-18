@@ -8,6 +8,7 @@ from pathlib import Path
 
 from nonergodic_memory.experiment import (
     config_digest,
+    generator_name,
     load_config,
     replace_jsonl_runs,
     runtime_provenance,
@@ -35,6 +36,7 @@ def main() -> None:
             record, _ = train_one(config, model_name, seed, args.output_dir)
             record["config"] = config_name
             record["config_sha256"] = config_digest(config)
+            record["generator"] = generator_name(config)
             record.update(runtime_provenance())
             records.append(record)
             print(f"{model_name} seed={seed} test_nll={record['test_nll']:.4f}")

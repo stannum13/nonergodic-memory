@@ -9,6 +9,7 @@ from pathlib import Path
 from nonergodic_memory.analysis import collect_activations, fit_probes, pca_records
 from nonergodic_memory.experiment import (
     config_digest,
+    generator_name,
     load_checkpoint,
     load_config,
     mixture_from_config,
@@ -35,6 +36,7 @@ def main() -> None:
     mixture = mixture_from_config(config)
     config_name = Path(args.config).stem
     config_sha256 = config_digest(config)
+    source_generator = generator_name(config)
     provenance = runtime_provenance()
     records: list[dict] = []
     for seed in args.seeds:
@@ -67,7 +69,12 @@ def main() -> None:
                         "device": "cpu",
                         "config": config_name,
                         "config_sha256": config_sha256,
-                        "overlap": float(config["data"]["overlap"]),
+                        "generator": source_generator,
+                        **(
+                            {"overlap": float(config["data"]["overlap"])}
+                            if "overlap" in config["data"]
+                            else {}
+                        ),
                         "sequence_length": int(config["data"]["sequence_length"]),
                         "components": int(config["data"].get("components", 2)),
                         "model_width": int(config["model"]["width"]),
@@ -87,7 +94,12 @@ def main() -> None:
                         "device": "cpu",
                         "config": config_name,
                         "config_sha256": config_sha256,
-                        "overlap": float(config["data"]["overlap"]),
+                        "generator": source_generator,
+                        **(
+                            {"overlap": float(config["data"]["overlap"])}
+                            if "overlap" in config["data"]
+                            else {}
+                        ),
                         "sequence_length": int(config["data"]["sequence_length"]),
                         "components": int(config["data"].get("components", 2)),
                         "model_width": int(config["model"]["width"]),
@@ -110,7 +122,12 @@ def main() -> None:
                                 "device": "cpu",
                                 "config": config_name,
                                 "config_sha256": config_sha256,
-                                "overlap": float(config["data"]["overlap"]),
+                                "generator": source_generator,
+                                **(
+                                    {"overlap": float(config["data"]["overlap"])}
+                                    if "overlap" in config["data"]
+                                    else {}
+                                ),
                                 "sequence_length": int(config["data"]["sequence_length"]),
                                 "components": int(config["data"].get("components", 2)),
                                 "model_width": int(config["model"]["width"]),
