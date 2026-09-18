@@ -6,9 +6,60 @@ This artifact tests whether small GRU and decoder-only Transformer predictors li
 
 The causal extension uses separate direction-fit, evaluator-fit, and test sequences. Learned erasures were selective on average, but effects varied sharply by architecture and seed and also occurred in untrained networks. Next-token loss changed little except for Transformer component erasure. The extension therefore falsifies the strong claim that training consistently creates stable, selectively necessary final-layer subspaces in this small setting.
 
+A separately registered direct Mess3 experiment now matches the paper's source process and six weighted joint-belief targets. Its CPU Transformer fails the registered trained-over-untrained prediction in all three seeds: joint R² is 0.3212 ± 0.0047 trained versus 0.3362 ± 0.0058 untrained. Pairwise-distance R² is negative in both conditions. This negative result is retained without changing the registered configuration; substantial architecture and compute differences prevent treating it as a refutation of the published larger-model result.
+
 ## Relation to the target result
 
-Ray, Riechers, and Shai derive a telescoping belief geometry for nonergodic compositions and report that a linear map from Transformer residual activations recovers weighted beliefs for two Mess3 sources with held-out R² near 0.985, versus about 0.45 for an untrained network. Their model and process are substantially larger than those used here. This is a conceptual reproduction: conventional two-state HMMs replace Mess3, and final activations of width-32 models replace a width-128, four-layer Transformer. Detailed correspondences and non-equivalences are recorded in `paper_notes.md`.
+Ray, Riechers, and Shai derive a telescoping belief geometry for nonergodic compositions and report that a linear map from Transformer residual activations recovers weighted beliefs for two Mess3 sources with held-out R² near 0.985, versus about 0.45 for an untrained network. The earlier experiments below are a conceptual reproduction using conventional two-state HMMs and smaller models. The new direct Mess3 experiment matches the source process through an exact transition/emission factorization, while retaining a smaller network and different training protocol. Detailed correspondences and non-equivalences are recorded in `paper_notes.md` and the fidelity table below.
+
+## Direct Mess3 fidelity reproduction
+
+The prediction was committed in `STATE.md` at `74dcff29a1470415a024d82333fba70cc05d31e9` before creating any Mess3 checkpoint, result JSONL, or figure: trained joint-belief R² would exceed the same-seed untrained control in all three seeds; pairwise-distance R² was secondary. `make reproduce-mess3` then ran the unchanged `configs/mess3_cpu.yaml` configuration on CPU, seeds 0/1/2, with configuration digest `843e572482fd5fcf`. The prediction failed in every seed.
+
+### Fidelity boundary
+
+The published reference values and specifications below come from the [Mess3 and training appendices](https://simplex.pub/nonergodic-geometry/). Local values are fixed by the checked-in generator, model, training code, and configuration. Hardware and several implementation details are not specified by the article; they are not assumed to match.
+
+| aspect | published experiment | this registered run |
+|---|---|---|
+| Source process | Two three-state Mess3s; `(x,alpha)` = `(0.15,0.60)` / `(0.50,0.66)`; equal weights | Exact same labeled matrices, alphabet, stationary prior, and fixed-component mixture via `T^(k) = A diag(E[:,k])`; see `paper_notes.md` |
+| Belief target | Six weighted joint coordinates | Same `q_t(c,s) = w_t(c) eta_t(c,s)`; components' masses sum to one |
+| Sequence protocol | BOS + 127 emissions; vocabulary 4; context 128 | 64 emissions, no BOS; vocabulary 3; 63 input/target positions; position-table capacity 128 |
+| Implementation / width / depth | TransformerLens; 128; four blocks | Native PyTorch causal Transformer; 32; two blocks |
+| Attention | Four heads, dimension 32 | Four heads, dimension 8 |
+| MLP | Width 512, gated GELU | Width 128, ordinary GELU, no gating |
+| Positions / normalization | Rotary / RMSNorm | Learned absolute embeddings / pre-LayerNorm plus final LayerNorm |
+| Initialization | Gaussian, standard deviation 0.02 | Native PyTorch module defaults; encoder blocks initially cloned from one layer |
+| Optimizer | AdamW; learning rate .001; weight decay 0 | AdamW; learning rate .003; default weight decay .01; both use betas (.9,.999) |
+| Batch / optimization steps | 512 sequences / 45,000 steps | 64 sequences / 768 steps (24 epochs × 32 batches) |
+| Training exposure | 2,926,080,000 next-token targets at that checkpoint | 3,096,576 targets; 2,048 fixed sampled sequences reused across epochs |
+| Readout location | Block-three residual stream for main figures; final block also reported | Final normalized representation after block two |
+| Readout protocol | Held-out linear readout; exact sample count/regularization not specified in article | StandardScaler + ridge (`alpha=1`); fit on 1,024 new sequences, test on 512 new sequences; all 63 positions |
+| Compute / controls | Hardware unspecified; untrained comparison | Deterministic CPU; seeds 0/1/2; same-seed initial networks and shuffled-target probes in both conditions |
+
+This is a direct data/process reproduction with different sequence packaging, architecture, analysis details, and compute. It is not an exact reproduction of the published training run or its numerical R². The source equivalence uses the stationary uniform state prior: `pi A = pi`, so emitting at the initial state gives the same first-token joint distribution as taking a transition before emission. Tests compare the labeled operators and exact short-sequence probabilities.
+
+### Registered outcome and secondary metrics
+
+Each entry uses held-out sequences disjoint from the probe fit. Joint R² is the mean of the six coordinate R² scores; joint MSE averages squared error over observations and coordinates. Distance R² compares Euclidean distances in the exact and reconstructed six-coordinate spaces for 20,000 deterministically sampled distinct unordered pairs per seed. The same pair indices are used across trained/untrained and shuffled conditions. Reconstructed coordinates are not clipped or renormalized.
+
+| seed | trained joint R² | untrained joint R² | trained − untrained | registered prediction | trained / untrained distance R² | trained / untrained joint MSE |
+|---|---:|---:|---:|---|---:|---:|
+| 0 | 0.327137 | 0.344238 | −0.017101 | fail | −1.246569 / −1.324774 | 0.020582 / 0.020057 |
+| 1 | 0.320975 | 0.333918 | −0.012943 | fail | −1.350873 / −1.360462 | 0.020768 / 0.020351 |
+| 2 | 0.315538 | 0.330558 | −0.015020 | fail | −1.349559 / −1.390801 | 0.021389 / 0.020907 |
+
+Across seeds (mean ± population SD), trained joint R² is 0.321217 ± 0.004738 versus 0.336238 ± 0.005821 untrained. Joint MSE is 0.020913 ± 0.000345 versus 0.020439 ± 0.000353. Secondary distance R² improves slightly in each seed, but is −1.315667 ± 0.048863 trained and −1.358679 ± 0.026985 untrained: both perform worse than predicting a constant mean exact pairwise distance. This secondary improvement does not rescue the failed primary prediction or establish accurate geometry recovery. All six shuffled-target joint R² values are near zero (−0.003910 to −0.000913).
+
+The separate conditional-state readout scores 0.699709 ± 0.007890 trained versus 0.748687 ± 0.010432 untrained. These targets normalize each component's three-state block independently and sum to two, unlike the weighted joint target. Component-posterior R² is near zero (−0.002657 trained and −0.003493 untrained means). Thus relatively recoverable conditional-state information is not evidence that the network tracks the component weights required for telescoping geometry. This pattern is consistent with accessible token features but does not identify a unique failure mechanism.
+
+Held-out training-evaluation NLL is 1.108181/1.104852/1.106930 nats, with exact-Bayes NLL 1.092796/1.091496/1.091044. Exact-predictive KL is 0.016676/0.014159/0.015992 nats (mean 0.015609 ± 0.001063). Training-set NLL is lower, 1.081088/1.082796/1.081913. The small run therefore does not reach the published predictive-accuracy regime. The architecture, optimization, and exposure differences are bundled; these measurements do not establish which change caused the failure.
+
+### Saved evidence and interpretation
+
+`results/mess3_training.jsonl` contains three training rows. `results/mess3_reproduction.jsonl` contains 12 probe cells (three seeds × trained/untrained × normal/shuffled), 6,000 geometry rows (2,000 per seed), and 1,500 descriptive PCA rows. Every probe has finite joint metrics. Every geometry row has six exact and six reconstructed finite coordinates; exact targets are nonnegative and their maximum sum-to-one error is `4.44e-16`. Both `figures/mess3_geometry.png` and `figures/mess3_metrics.png` are generated only from these records. The geometry panels are descriptive projections; quantitative evidence is supplied by the held-out scores, not by visual resemblance.
+
+The registered result is negative: this CPU training protocol does not improve weighted-belief recovery over its initialized controls. It does not reproduce the paper's high-fidelity representation and supplies no Mess3 causal-erasure result. The earlier conceptual reproduction and causal extension remain separate experiments. All failed comparisons are retained, with no post-result tuning or seed replacement.
 
 ## Analytic ground truth
 
@@ -200,13 +251,17 @@ The direction therefore generalizes from Transformer to GRU, although the GRU ma
 - Length-nine-trained Transformers had worse eight-window KL and component R² than the restarted length-64 models in every seed, falsifying the predicted short-training rescue under fixed sequence count. Their training token budgets are not equal.
 - Matching short training to the long model's supervised-token and optimizer-step budgets improves short-window KL in every seed, overturning the fixed-count inference. Batch size and training-sequence diversity move with budget, so the improvement is not uniquely attributable to token count.
 - The matched-budget improvement generalizes to the GRU but is modest (+0.0054 nats KL reduction); GRU conditional-state R² is unchanged.
-- The simple state-emission HMMs do not recreate Mess3’s fractal reachable-state geometry. PCA separation is not evidence for telescoping cones.
+- The earlier simple two-state sources do not recreate Mess3's reachable-state geometry. The direct Mess3 experiment now reproduces that process, but fails the registered trained-over-untrained weighted-belief test in every seed; pairwise-distance R² is negative. Neither PCA separation nor visual resemblance is evidence for accurate telescoping-geometry recovery.
 - The central result still covers only overlap 0.35, two components, length 32, and width 32. The exploratory one-axis sweeps and one matched 2×2 overlap-by-context grid leave most cross-axis interactions untested.
 - Erasure is based on a single linear probe fit. Iterative nullspace projection or nonlinear adversaries could find residual information not measured here.
 
 ## Reproducibility
 
 The checked-in central run used CPU only. In the observed environment, six training runs took about 39 seconds, cached-checkpoint reproduction analysis 14.1 seconds, and the three-split intervention analysis 17.4 seconds. The complete overlap, length, component-count, width, and depth sweeps took 151.7, 146.5, 136.5, 147.6, and about 25 seconds; the matched interaction grid took about three minutes. `make smoke` runs the complete one-seed pipeline. `make train`, `make reproduce`, `make extension`, `make figures`, and the eleven `make sweep-*` commands regenerate the artifact. Checkpoints are validated against the full requested configuration, model, and seed. Partial CLI reruns atomically replace only matching result cells. Records carry a configuration digest and runtime library versions. Figures read only JSONL records, discard stale outputs, facet architectures, state seed sample sizes, and keep central aggregation separate from sweep records.
+
+### Mess3 audit
+
+After preregistration at `74dcff2`, the first `/usr/bin/time -p make reproduce-mess3` ran with no Mess3 checkpoints or outputs and completed in 162.96 seconds (140.92 user, 15.67 system). CPU provenance is Python 3.14.2, NumPy 2.4.1, and PyTorch 2.11.0. `/usr/bin/time -p pytest -q` passed all 82 tests in 37.84 seconds (40.65 seconds command wall time). The second `/usr/bin/time -p make reproduce-mess3` completed in 34.68 seconds (31.46 user, 2.13 system), reused all three checkpoints without changing their bytes or modification times, and regenerated both figures. Both JSONL files matched the first run in parsed values and bytes; both PNGs were byte-identical. This verifies cached-checkpoint determinism in the recorded environment, not checkpoint-free retraining or equality across library versions. The initial failed prediction is retained in full.
 
 ### Fresh-clone audit
 
