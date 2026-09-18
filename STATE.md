@@ -21,3 +21,7 @@ The registered exposure-matching effect generalizes from Transformer to GRU. Fix
 ## Next smallest experiment
 
 No additional scientific result is registered. The operational fresh-clone audit is complete: all required commands, eleven sweeps, and 65 tests passed without checkpoints; numerical records matched exactly, figures were byte-identical, and nine schema-only provenance drifts were corrected. Further work should begin with a new preregistered scientific question rather than extending the current loop post hoc.
+
+## Registered Mess3 fidelity prediction
+
+For the exact published two-Mess3 source, trained Transformer joint-belief R² will exceed its same-seed untrained control in all three seeds. Pairwise-distance R² is secondary. The experiment is a direct data/process reproduction but not an exact compute reproduction: width 32, two layers, absolute positions, LayerNorm, and CPU training differ from the published width-128 four-layer TransformerLens model with rotary positions, RMSNorm, gated GELU, and 45,000 optimization steps.
