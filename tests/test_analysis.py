@@ -121,3 +121,17 @@ def test_pairwise_distance_r2_is_deterministic_for_a_seed() -> None:
     first = pairwise_distance_r2(actual, predicted, seed=13)
     second = pairwise_distance_r2(actual, predicted, seed=13)
     assert first == second
+
+
+@pytest.mark.parametrize(
+    ("coordinates", "max_pairs", "message"),
+    [
+        (np.array([[0.0, 0.0], [1.0, 0.0]]), 20_000, "three coordinates"),
+        (np.array([[0.0, 0.0], [1.0, 0.0], [0.0, 2.0]]), 1, "at least two pairs"),
+    ],
+)
+def test_pairwise_distance_r2_rejects_undefined_sample_sizes(
+    coordinates: np.ndarray, max_pairs: int, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        pairwise_distance_r2(coordinates, coordinates, seed=14, max_pairs=max_pairs)

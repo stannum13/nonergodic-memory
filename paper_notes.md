@@ -22,7 +22,7 @@ T^(b) = A diag(beta, alpha, beta)
 T^(c) = A diag(beta, beta, alpha)
 ```
 
-Thus `T^(k)[i,j] = A[i,j] E[j,k]`: transitioning from `i` to `j` and then emitting token `k` from `j` gives the published labeled operators exactly. This is an exact factorization, not an approximate replacement of an edge-emitting process. The implementation uses `(x,alpha) = (0.15,0.60)` and `(0.50,0.66)`, component weights `(1/2,1/2)`, and uniform initial state `pi = (1/3,1/3,1/3)`. Because `pi A = pi`, omitting a transition before the first emission in the existing sampler/filter leaves the first-token joint state distribution unchanged. Subsequent updates multiply by `A` and then the appropriate diagonal emission matrix. Matrix-identity and enumerated-short-sequence tests check this equivalence.
+Thus `T^(k)[i,j] = A[i,j] E[j,k]`: transitioning from `i` to `j` and then emitting token `k` from `j` gives the published labeled operators exactly. This is an exact factorization, not an approximate replacement of an edge-emitting process. The implementation uses `(x,alpha) = (0.15,0.60)` and `(0.50,0.66)`, component weights `(1/2,1/2)`, and uniform initial state `pi = (1/3,1/3,1/3)`. Because `pi A = pi`, omitting a transition before the first emission in the existing sampler/filter leaves the first-token joint state distribution unchanged. Subsequent updates multiply by `A` and then the appropriate diagonal emission matrix. Tests assert the published labeled matrices independently for both components and directly compare Mess3 filtering on a short word with normalized products of those operators. The separate brute-force enumeration test exercises a generic two-state HMM mixture only; it is not evidence specific to Mess3.
 
 The six-coordinate target is
 

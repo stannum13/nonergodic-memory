@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from itertools import product
 
-from nonergodic_memory.data.hmm import (
+from nonergodic_memory.data import (
     HMM,
     HMMMixture,
     make_mess3,
@@ -20,6 +20,32 @@ def test_mess3_factorization_matches_published_labeled_operators() -> None:
     expected_c = np.array([[.14, .03, .09], [.03, .14, .09], [.03, .03, .42]])
     np.testing.assert_allclose(labeled, np.stack([expected_a, expected_b, expected_c]))
     np.testing.assert_allclose(hmm.initial, np.full(3, 1 / 3))
+
+
+def test_second_mess3_factorization_matches_published_labeled_operators() -> None:
+    hmm = make_mess3(alpha=0.66, x=0.50)
+    labeled = np.stack([hmm.transition * hmm.emission[:, token][None, :] for token in range(3)])
+    expected_a = np.array([[0.0, .085, .085], [.33, 0.0, .085], [.33, .085, 0.0]])
+    expected_b = np.array([[0.0, .33, .085], [.085, 0.0, .085], [.085, .33, 0.0]])
+    expected_c = np.array([[0.0, .085, .33], [.085, 0.0, .33], [.085, .085, 0.0]])
+    np.testing.assert_allclose(labeled, np.stack([expected_a, expected_b, expected_c]))
+
+
+@pytest.mark.parametrize("alpha, x", [(0.60, 0.15), (0.66, 0.50)])
+def test_mess3_filter_matches_published_operators_for_a_short_word(alpha: float, x: float) -> None:
+    hmm = make_mess3(alpha=alpha, x=x)
+    mixture = HMMMixture([hmm], [1.0])
+    word = np.array([[0, 1, 2, 1]], dtype=np.int64)
+    filtered = mixture.filter(word)
+    operators = np.stack(
+        [hmm.transition * hmm.emission[:, token][None, :] for token in range(hmm.vocab_size)]
+    )
+
+    state = hmm.initial.copy()
+    for position, token in enumerate(word[0]):
+        state = state @ operators[token]
+        state /= state.sum()
+        np.testing.assert_allclose(filtered.state_posterior[0, position, 0], state)
 
 
 def test_published_mess3_mixture_has_two_three_state_components() -> None:
