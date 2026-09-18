@@ -140,7 +140,8 @@ def main() -> None:
                 print(
                     f"{model_name} {condition} seed={seed} "
                     f"component={bundle.metrics['component_accuracy']:.3f} "
-                    f"state={bundle.metrics['conditional_state_accuracy']:.3f}"
+                    f"state={bundle.metrics['conditional_state_accuracy']:.3f} "
+                    f"joint_r2={bundle.metrics['joint_belief_r2']:.3f}"
                 )
     replace_jsonl_runs(args.results, records, config_name, args.models, args.seeds)
 
