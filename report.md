@@ -37,7 +37,7 @@ The published reference values and specifications below come from the [Mess3 and
 | Readout protocol | Held-out linear readout; exact sample count/regularization not specified in article | StandardScaler + ridge (`alpha=1`); fit on 1,024 new sequences, test on 512 new sequences; all 63 positions |
 | Compute / controls | Hardware unspecified; untrained comparison | Deterministic CPU; seeds 0/1/2; same-seed initial networks and shuffled-target probes in both conditions |
 
-This is a direct data/process reproduction with different sequence packaging, architecture, analysis details, and compute. It is not an exact reproduction of the published training run or its numerical R². The source equivalence uses the stationary uniform state prior: `pi A = pi`, so emitting at the initial state gives the same first-token joint distribution as taking a transition before emission. Tests compare the labeled operators and exact short-sequence probabilities.
+This is a direct data/process reproduction with different sequence packaging, architecture, analysis details, and compute. It is not an exact reproduction of the published training run or its numerical R². The source equivalence uses the stationary uniform state prior: `pi A = pi`, so emitting at the initial state gives the same first-token joint distribution as taking a transition before emission. Tests independently assert the published labeled operators for both Mess3 components and compare short-word filter states directly with normalized products of those operators. A separate brute-force enumeration test covers only a generic two-state mixture.
 
 ### Registered outcome and secondary metrics
 

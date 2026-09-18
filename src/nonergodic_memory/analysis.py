@@ -130,8 +130,10 @@ def pairwise_distance_r2(
     if actual.ndim != 2 or actual.shape != predicted.shape:
         raise ValueError("actual and predicted must have the same two-dimensional shape")
     n_points = len(actual)
-    if n_points < 2:
-        raise ValueError("at least two coordinates are required")
+    if n_points < 3:
+        raise ValueError("at least three coordinates are required")
+    if max_pairs < 2:
+        raise ValueError("at least two pairs are required")
 
     total_pairs = n_points * (n_points - 1) // 2
     n_pairs = min(total_pairs, max_pairs)
