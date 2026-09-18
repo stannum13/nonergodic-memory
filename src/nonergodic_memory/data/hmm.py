@@ -161,6 +161,27 @@ class HMMMixture:
         return FilterResult(component_posterior, state_posterior, predictive)
 
 
+def make_mess3(alpha: float, x: float) -> HMM:
+    if not 0.0 <= alpha <= 1.0:
+        raise ValueError("alpha must lie in [0, 1]")
+    if not 0.0 <= x <= 0.5:
+        raise ValueError("x must lie in [0, 0.5]")
+    beta = (1.0 - alpha) / 2.0
+    y = 1.0 - 2.0 * x
+    transition = np.full((3, 3), x)
+    np.fill_diagonal(transition, y)
+    emission = np.full((3, 3), beta)
+    np.fill_diagonal(emission, alpha)
+    return HMM(transition, emission, np.full(3, 1.0 / 3.0))
+
+
+def make_mess3_mixture() -> HMMMixture:
+    return HMMMixture(
+        [make_mess3(alpha=0.60, x=0.15), make_mess3(alpha=0.66, x=0.50)],
+        [0.5, 0.5],
+    )
+
+
 def make_source_mixture(n_components: int = 2, overlap: float = 0.35) -> HMMMixture:
     """Create 2–4 two-state sources; overlap 1 makes all emissions identical."""
     if not 0.0 <= overlap <= 1.0:

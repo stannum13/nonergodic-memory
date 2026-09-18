@@ -2,7 +2,31 @@ import numpy as np
 import pytest
 from itertools import product
 
-from nonergodic_memory.data.hmm import HMM, HMMMixture, make_source_mixture, make_two_source_mixture
+from nonergodic_memory.data.hmm import (
+    HMM,
+    HMMMixture,
+    make_mess3,
+    make_mess3_mixture,
+    make_source_mixture,
+    make_two_source_mixture,
+)
+
+
+def test_mess3_factorization_matches_published_labeled_operators() -> None:
+    hmm = make_mess3(alpha=0.6, x=0.15)
+    labeled = np.stack([hmm.transition * hmm.emission[:, token][None, :] for token in range(3)])
+    expected_a = np.array([[.42, .03, .03], [.09, .14, .03], [.09, .03, .14]])
+    expected_b = np.array([[.14, .09, .03], [.03, .42, .03], [.03, .09, .14]])
+    expected_c = np.array([[.14, .03, .09], [.03, .14, .09], [.03, .03, .42]])
+    np.testing.assert_allclose(labeled, np.stack([expected_a, expected_b, expected_c]))
+    np.testing.assert_allclose(hmm.initial, np.full(3, 1 / 3))
+
+
+def test_published_mess3_mixture_has_two_three_state_components() -> None:
+    mixture = make_mess3_mixture()
+    assert mixture.vocab_size == 3
+    assert [component.n_states for component in mixture.components] == [3, 3]
+    np.testing.assert_allclose(mixture.weights, [0.5, 0.5])
 
 
 def test_one_state_mixture_matches_bayes_rule() -> None:
