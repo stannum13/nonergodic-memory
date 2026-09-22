@@ -7,6 +7,7 @@ import torch
 from nonergodic_memory.data import make_mess3_mixture
 from nonergodic_memory.mess3_diagnosis import (
     competence,
+    evaluate_checkpoint_geometry,
     predictive_baselines,
     predictive_kl,
     train_diagnostic,
@@ -29,7 +30,7 @@ def _tiny_diagnostic_config() -> dict:
             "checkpoint_steps": [0, 2],
         },
         "diagnosis": {"window": 3},
-        "probe": {"train_sequences": 8, "test_sequences": 8},
+        "probe": {"train_sequences": 32, "test_sequences": 24},
     }
 
 
@@ -100,3 +101,27 @@ def test_diagnostic_training_is_deterministic_and_rejects_unknown_condition(
     ]
     with pytest.raises(ValueError, match="condition"):
         train_diagnostic(config, seed=7, condition="other", output_dir=tmp_path / "bad")
+
+
+def test_checkpoint_geometry_covers_every_layer_and_control(tmp_path: Path) -> None:
+    config = _tiny_diagnostic_config()
+    train_diagnostic(config, seed=6, condition="fresh", output_dir=tmp_path)
+    checkpoint = tmp_path / "transformer_seed6_fresh_step2.pt"
+
+    rows = evaluate_checkpoint_geometry(config, checkpoint, seed=6, condition="fresh")
+
+    assert {(row["site"], row["control"]) for row in rows} == {
+        (site, control)
+        for site in ("block_1", "block_2", "final_norm")
+        for control in ("none", "shuffled_labels")
+    }
+    assert {row["step"] for row in rows} == {2}
+    assert {row["probe_sequence_overlap"] for row in rows} == {0}
+    metric_names = (
+        "component_posterior_r2",
+        "state_posterior_r2",
+        "joint_belief_r2",
+        "joint_belief_mse",
+        "joint_distance_r2",
+    )
+    assert all(np.isfinite(row[name]) for row in rows for name in metric_names)

@@ -9,10 +9,13 @@ import torch
 import torch.nn.functional as F
 from numpy.typing import NDArray
 
+from .analysis import collect_transformer_depth_activations, fit_probes
 from .context import oracle_window_beliefs
 from .data.hmm import HMMMixture, SequenceBatch
 from .experiment import (
     generator_name,
+    config_digest,
+    load_checkpoint,
     mixture_from_config,
     runtime_provenance,
     set_seed,
@@ -239,4 +242,60 @@ def train_diagnostic(
         optimizer.step()
         if step in checkpoint_set:
             save_record(step)
+    return records
+
+
+def evaluate_checkpoint_geometry(
+    config: dict,
+    checkpoint: str | Path,
+    seed: int,
+    condition: str,
+) -> list[dict]:
+    """Fit held-out belief probes at each Transformer activation site."""
+    if condition not in {"reused", "fresh"}:
+        raise ValueError("condition must be reused or fresh")
+    payload, model = load_checkpoint(checkpoint, config, "transformer", seed)
+    if payload.get("condition") != condition:
+        raise ValueError("checkpoint condition does not match requested condition")
+    step = int(payload.get("step", -1))
+    if step < 0:
+        raise ValueError("diagnostic checkpoint is missing a valid step")
+    mixture = mixture_from_config(config)
+    length = int(config["data"]["sequence_length"])
+    probe = config["probe"]
+    train_batch = mixture.sample(int(probe["train_sequences"]), length, seed + 404)
+    test_batch = mixture.sample(int(probe["test_sequences"]), length, seed + 505)
+    n_layers = int(config["model"]["layers"])
+    records: list[dict] = []
+    for depth in range(n_layers + 1):
+        site = f"block_{depth + 1}" if depth < n_layers else "final_norm"
+        train_table = collect_transformer_depth_activations(
+            model, train_batch, mixture, depth, sequence_offset=0
+        )
+        test_table = collect_transformer_depth_activations(
+            model, test_batch, mixture, depth, sequence_offset=1_000_000
+        )
+        overlap = int(
+            len(np.intersect1d(np.unique(train_table.sequence_ids), np.unique(test_table.sequence_ids)))
+        )
+        for shuffle in (False, True):
+            bundle = fit_probes(train_table, test_table, seed, shuffle_labels=shuffle)
+            records.append(
+                {
+                    "record_type": "diagnostic_probe",
+                    "generator": "mess3",
+                    "model": "transformer",
+                    "seed": seed,
+                    "condition": condition,
+                    "step": step,
+                    "depth": depth,
+                    "site": site,
+                    "control": "shuffled_labels" if shuffle else "none",
+                    "probe_sequence_overlap": overlap,
+                    "config_sha256": config_digest(config),
+                    "device": "cpu",
+                    **bundle.metrics,
+                    **runtime_provenance(),
+                }
+            )
     return records
