@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 import torch
+import matplotlib.image as mpimg
 
 from nonergodic_memory.mess3_threshold import (
     analyze_threshold,
@@ -192,6 +193,10 @@ def test_threshold_analysis_uses_leave_one_seed_out_and_registered_criterion() -
     for fold in summary["folds"]:
         assert fold["held_out_seed"] not in fold["training_seeds"]
         assert fold["test_cells"] == 2 * 4
+    sensitivity = summary["posthoc_post_initialization_sensitivity"]
+    assert sensitivity["selection"] == "step > 0"
+    assert sensitivity["competence_to_step_mse_ratio"] < 0.8
+    assert all(fold["test_cells"] == 2 * 3 for fold in sensitivity["folds"])
 
 
 def test_threshold_analysis_rejects_out_of_bounds_shuffled_control() -> None:
@@ -202,6 +207,24 @@ def test_threshold_analysis_rejects_out_of_bounds_shuffled_control() -> None:
 
     assert not summary["shuffled_control_valid"]
     assert not summary["registered_supported"]
+
+
+def test_threshold_analysis_marks_posthoc_unavailable_with_one_trained_step() -> None:
+    config, training, probes = _synthetic_threshold_grid()
+    config["train"]["checkpoint_steps"] = [0, 1]
+    training = [row for row in training if row["step"] in (0, 1)]
+    probes = [row for row in probes if row["step"] in (0, 1)]
+    from nonergodic_memory.experiment import config_digest
+
+    base_digest = config_digest(config)
+    for row in [*training, *probes]:
+        row["base_config_sha256"] = base_digest
+
+    summary = analyze_threshold(config, training, probes)
+
+    sensitivity = summary["posthoc_post_initialization_sensitivity"]
+    assert sensitivity["status"] == "unavailable"
+    assert "two distinct" in sensitivity["reason"]
 
 
 def test_threshold_figures_are_generated_from_complete_raw_grid(tmp_path: Path) -> None:
@@ -215,3 +238,5 @@ def test_threshold_figures_are_generated_from_complete_raw_grid(tmp_path: Path) 
         "mess3_threshold_alignment.png",
     }
     assert all(path.stat().st_size > 0 for path in paths)
+    alignment = mpimg.imread(tmp_path / "mess3_threshold_alignment.png")
+    assert alignment.shape[1] > 2 * alignment.shape[0]

@@ -95,39 +95,56 @@ def generate_threshold_figures(
     axes[0].legend(handles=rate_handles, frameon=False)
     learning_path = _save(fig, destination / "mess3_threshold_learning.png")
 
-    fig, axis = plt.subplots(figsize=(6.2, 4.5))
+    fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.5))
     max_step = max(int(row["step"]) for row in training)
-    for control, alpha in (("shuffled_labels", 0.18), ("none", 0.72)):
-        for rate in rates:
-            rows = [
-                row
-                for row in block_rows
-                if row["control"] == control and float(row["learning_rate"]) == rate
-            ]
-            steps = np.asarray([int(row["step"]) for row in rows], dtype=float)
-            axis.scatter(
-                [
-                    training_cells[
-                        (int(row["seed"]), rate, int(row["step"]))
-                    ]["competence"]
-                    for row in rows
-                ],
-                [row["component_posterior_r2"] for row in rows],
-                s=24 + 50 * steps / max(1, max_step),
-                color=colors[rate],
-                alpha=alpha,
-                marker="x" if control == "shuffled_labels" else "o",
-                label=f"lr={rate:g}, {control}" if control == "none" else None,
-            )
-    axis.axhline(0, color="black", linewidth=0.7)
-    axis.set(
-        xlabel="predictive competence",
-        ylabel="block-2 component-posterior R²",
-        title=(
-            "Competence alignment · LOSO MSE ratio "
-            f"{summary['competence_to_step_mse_ratio']:.3f}"
+    sensitivity = summary["posthoc_post_initialization_sensitivity"]
+    sensitivity_title = (
+        "Post hoc: step > 0\nLOSO MSE ratio "
+        f"{sensitivity['competence_to_step_mse_ratio']:.3f}"
+        if sensitivity["status"] != "unavailable"
+        else "Post hoc: step > 0\nunavailable for this grid"
+    )
+    panels = (
+        (
+            axes[0],
+            lambda row: True,
+            "Registered: all checkpoints\n"
+            f"LOSO MSE ratio {summary['competence_to_step_mse_ratio']:.3f}",
+        ),
+        (
+            axes[1],
+            lambda row: int(row["step"]) > 0,
+            sensitivity_title,
         ),
     )
-    axis.legend(frameon=False)
+    for axis, include, title in panels:
+        for control, alpha in (("shuffled_labels", 0.18), ("none", 0.72)):
+            for rate in rates:
+                rows = [
+                    row
+                    for row in block_rows
+                    if row["control"] == control
+                    and float(row["learning_rate"]) == rate
+                    and include(row)
+                ]
+                steps = np.asarray([int(row["step"]) for row in rows], dtype=float)
+                axis.scatter(
+                    [
+                        training_cells[
+                            (int(row["seed"]), rate, int(row["step"]))
+                        ]["competence"]
+                        for row in rows
+                    ],
+                    [row["component_posterior_r2"] for row in rows],
+                    s=24 + 50 * steps / max(1, max_step),
+                    color=colors[rate],
+                    alpha=alpha,
+                    marker="x" if control == "shuffled_labels" else "o",
+                    label=f"lr={rate:g}" if control == "none" else None,
+                )
+        axis.axhline(0, color="black", linewidth=0.7)
+        axis.set(xlabel="predictive competence", title=title)
+    axes[0].set(ylabel="block-2 component-posterior R²")
+    axes[0].legend(frameon=False)
     alignment_path = _save(fig, destination / "mess3_threshold_alignment.png")
     return [learning_path, alignment_path]

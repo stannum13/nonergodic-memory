@@ -8,6 +8,8 @@ The causal extension uses separate direction-fit, evaluator-fit, and test sequen
 
 A separately registered direct Mess3 experiment now matches the paper's source process and six weighted joint-belief targets. Its first fixed-pool CPU run fails the registered trained-over-untrained prediction in all three seeds: joint R² is 0.3212 ± 0.0047 trained versus 0.3362 ± 0.0058 untrained. That negative result is retained unchanged. A subsequent registered exploratory diagnosis compares fresh and reused sequences at matched checkpoints. At the original 768-update budget, fresh data improves held-out prediction but leaves component-posterior R² near zero and joint-belief R² near 0.38. At 3,072 updates, fresh training supports the registered predictive prediction in both seeds, recovers 80–84% of the uniform-to-Bayes gap, and reaches deeper-layer joint-belief R² of 0.62–0.73; fixed-pool training overfits sharply. Thus the geometry recovery requires fresh data together with a fourfold larger training budget in this design. The two-seed exploratory status and remaining architecture differences prevent claiming an exact reproduction of the published result.
 
+A five-seed, two-learning-rate confirmation then tests whether predictive competence aligns component geometry better than optimizer step. The registered claim fails in all held-out seeds: competence-only leave-one-seed-out MSE is 0.013170 versus 0.005537 for log-step, a ratio of 2.378 rather than the predicted value below 0.80. Shuffled controls pass. A post-hoc analysis excluding initialization reverses the ratio to 0.477, revealing sensitivity to an extreme initialization regime but not rescuing the preregistered result.
+
 ## Relation to the target result
 
 Ray, Riechers, and Shai derive a telescoping belief geometry for nonergodic compositions and report that a linear map from Transformer residual activations recovers weighted beliefs for two Mess3 sources with held-out R² near 0.985, versus about 0.45 for an untrained network. The earlier experiments below are a conceptual reproduction using conventional two-state HMMs and smaller models. The new direct Mess3 experiment matches the source process through an exact transition/emission factorization, while retaining a smaller network and different training protocol. Detailed correspondences and non-equivalences are recorded in `paper_notes.md` and the fidelity table below.
@@ -99,6 +101,31 @@ Layerwise held-out probes were fitted on 1,024 new sequences and tested on 512 d
 Fresh-data geometry is strongest after block 2 rather than final normalization. Component-posterior recovery, which was absent at initialization, after 768 fresh updates, and in reused training, emerges only after 3,072 fresh updates. Conditional-state R² after fresh training is 0.91–0.93 across the two blocks, and block-2 pairwise-distance R² becomes positive in both seeds (0.327 and 0.097). Every shuffled-target joint-belief R² lies between −0.0048 and 0.0009. The relationship is therefore quantitative and held out; the accompanying plot is descriptive.
 
 The result does not reach the published joint-belief R² near 0.985, and the experiment has only two explicitly exploratory seeds. The 768-update comparison isolates fixed-pool reuse versus fresh data but improves prediction without recovering component geometry; the 3,072-update geometry result additionally changes total compute relative to the initial run. Architecture, initialization, optimizer, and context differences also remain. The uncached CPU command reported 3:02:13 wall time (957.8 seconds user, 53.0 seconds system), nearly exhausting the four-hour exploratory cap. The large wall/user-time discrepancy was not profiled, so it is not attributed to the sampler or any other single cause. No five-seed confirmation was launched. The next economical step is to optimize and benchmark sampling without changing the data law, then preregister fresh confirmatory seeds if projected compute fits a new budget.
+
+### Registered geometry-threshold test
+
+The follow-up was registered in `STATE.md` at commit `a8491b5` before creating a threshold checkpoint, result, or figure. Configuration digest `d2423ea9f3b44075` uses fresh vectorized samples, confirmation seeds 20–24, learning rates 0.003/0.0015, and checkpoints 0/384/768/1,152/1,536/2,304/3,072. Same-seed rate conditions share initialization, batch seeds, held-out prediction data, and probe splits. Every checkpoint is probed at block 1, block 2, and final normalization with normal and shuffled labels.
+
+The registered primary comparison fits quadratic regressions for normal-control block-2 component-posterior R² using either predictive competence or `log1p(step)`. Each leave-one-seed-out fold holds out both rate trajectories for one seed. Success required `MSE_competence / MSE_step < 0.80` and every shuffled-label component R² within ±0.02.
+
+The prediction fails in every fold:
+
+| held-out seed | competence MSE | log-step MSE | competence / step |
+|---:|---:|---:|---:|
+| 20 | 0.007820 | 0.003230 | 2.421 |
+| 21 | 0.008178 | 0.006037 | 1.355 |
+| 22 | 0.022388 | 0.008591 | 2.606 |
+| 23 | 0.016797 | 0.006273 | 2.678 |
+| 24 | 0.010667 | 0.003556 | 2.999 |
+| pooled | 0.013170 | 0.005537 | **2.378** |
+
+The shuffled-label range is −0.01074 to 0.01069, so the registered control passes. All 420 probe records have zero sequence overlap. The failure is therefore not caused by an obviously invalid probe control: over the complete initialization-to-3,072 trajectory, optimizer step predicts held-out-seed component geometry better than predictive competence under the registered quadratic model.
+
+Learning dynamics still show an orderly rate shift. At learning rate 0.003, mean block-2 component R² is 0.005/0.141/0.281/0.363 at steps 768/1,536/2,304/3,072. At learning rate 0.0015 it is −0.002/0.006/0.127/0.238. Final predictive competence is 0.850 and 0.814 respectively. Joint-belief R² reaches 0.684/0.628 and pairwise-distance R² becomes positive at both rates.
+
+Initialization complicates the chosen global functional form. Its mean competence is about −11.8, whereas post-initialization checkpoints lie near 0–0.85. An explicitly post-hoc sensitivity analysis applying the same LOSO comparison only to `step > 0` favors competence in every seed: pooled competence MSE is 0.002048 versus step MSE 0.004298, ratio 0.477. This is evidence that trained checkpoints may follow a competence-aligned regime, but it was discovered after the registered result and cannot convert the primary failure into a success. A future test must preregister a two-regime model and use new seeds.
+
+The general vectorized HMM sampler is distribution-tested against component, initial-state, transition, and emission probabilities. On 64 length-64 Mess3 sequences its 20-repeat median is 0.002622 seconds versus 0.062623 for the reference sampler, a 23.9× speedup. The complete registered command took 1,857 seconds wall time after reusing one 136.65-second pilot. This benchmark establishes feasibility only; it does not explain the earlier diagnosis command's wall/user-time discrepancy.
 
 ## Analytic ground truth
 
@@ -291,6 +318,7 @@ The direction therefore generalizes from Transformer to GRU, although the GRU ma
 - Matching short training to the long model's supervised-token and optimizer-step budgets improves short-window KL in every seed, overturning the fixed-count inference. Batch size and training-sequence diversity move with budget, so the improvement is not uniquely attributable to token count.
 - The matched-budget improvement generalizes to the GRU but is modest (+0.0054 nats KL reduction); GRU conditional-state R² is unchanged.
 - The earlier simple two-state sources do not recreate Mess3's reachable-state geometry. The initial direct Mess3 fixed-pool experiment reproduces that process but fails the registered trained-over-untrained test. The later diagnosis shows that sequence reuse confounds predictive generalization at 768 updates, but component geometry remains absent at that budget. Fresh data plus 3,072 updates improves joint-belief recovery and makes block-2 distance R² positive in both exploratory seeds. The diagnosis has only two seeds and still falls well below the published R².
+- The registered five-seed threshold hypothesis fails: a global quadratic in competence generalizes worse than a quadratic in log-step. A post-hoc exclusion of initialization reverses the result, exposing regime sensitivity but requiring new confirmation rather than reinterpretation.
 - The central result still covers only overlap 0.35, two components, length 32, and width 32. The exploratory one-axis sweeps and one matched 2×2 overlap-by-context grid leave most cross-axis interactions untested.
 - Erasure is based on a single linear probe fit. Iterative nullspace projection or nonlinear adversaries could find residual information not measured here.
 
@@ -305,6 +333,10 @@ After preregistration at `74dcff2`, the first `/usr/bin/time -p make reproduce-m
 ### Training-diversity diagnosis audit
 
 The exploratory diagnosis was preregistered at `7cac6cb`; immediately beforehand, no diagnosis checkpoint, JSONL file, or figure existed. The first `time make diagnose-mess3` completed the full two-seed fresh/reused grid in 3:02:13 wall time (957.77 seconds user, 52.97 seconds system). It created four baseline rows, 12 training rows, 72 probe rows, 12 checkpoints, and two figures. All records share configuration digest `aa2de784730aa352`; probe sequence overlap is zero and every reported metric is finite. A cached rerun took 2:10.45, explicitly reused the complete checkpoint/training-record set, and regenerated the baselines, probes, and figures. All three JSONL SHA-256 hashes and both PNG hashes were unchanged. The cause of the initial wall/user-time discrepancy was not profiled; the observed wall time alone prevents claiming the current command is a cheap five-seed confirmation path.
+
+### Geometry-threshold audit
+
+The threshold prediction was committed at `a8491b5`; immediately beforehand no threshold checkpoint, result, or figure existed. A single seed-20/rate-0.003 pilot took 136.65 seconds wall time. The full command reused that cell and completed in 1,857.23 seconds wall time (1,695.31 user, 137.90 system). It produced 70 unique training cells, 420 unique probe cells, one summary, 70 checkpoints, and two figures. Every numerical metric is finite, every probe split has zero sequence overlap, and no registered seed was replaced. The raw JSONL files and figures are regenerated only from the checked-in configuration and checkpoints; checkpoint-free determinism for this new grid has not been audited.
 
 ### Fresh-clone audit
 

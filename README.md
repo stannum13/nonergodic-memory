@@ -10,7 +10,7 @@ Real sequence data is heterogeneous: a document has an author, language, genre, 
 
 This repository turns that claim into a controlled experiment. The sources are small hidden Markov models (HMMs), so the exact Bayesian posterior and exact next-token distribution are computable at every position. A GRU and a decoder-only Transformer see only tokens. Held-out probes test whether their activations recover the exact beliefs; causal projections test whether removing those representations selectively damages behavior.
 
-The result is deliberately mixed. The simpler HMM experiment recovers component information, but conditional-state and causal-erasure effects are architecture- and seed-sensitive. The first direct Mess3 reproduction fails its registered trained-over-untrained prediction. A later diagnosis shows that fresh data improves prediction at 768 updates without recovering component geometry; substantial geometry appears only after 3,072 fresh-data updates. That is evidence for a training/generalization confound, not an exact reproduction of the published number.
+The result is deliberately mixed. The simpler HMM experiment recovers component information, but conditional-state and causal-erasure effects are architecture- and seed-sensitive. The first direct Mess3 reproduction fails its registered trained-over-untrained prediction. A later diagnosis shows that fresh data improves prediction at 768 updates without recovering component geometry; substantial geometry appears only after 3,072 fresh-data updates. A five-seed, two-learning-rate follow-up then falsifies the preregistered claim that predictive competence globally aligns geometry better than optimizer step. That is evidence for a training/generalization confound and multi-stage learning dynamics, not an exact reproduction of the published number.
 
 ## Why generate sequences from HMMs?
 
@@ -62,11 +62,22 @@ PCA and three-dimensional projections are descriptive only. Registered predictio
 | Small two-state HMM mixture | Component posterior is linearly recoverable; state recovery is also high but training gains are inconsistent. | Partial conceptual reproduction, not blanket agreement. |
 | Direct two-Mess3 reproduction | Registered prediction fails: trained joint-belief R² is `0.3212 ± 0.0047`, below untrained `0.3362 ± 0.0058`. | Exact source process alone is insufficient under the smaller architecture and training protocol. |
 | Fresh-versus-reused diagnosis | At 768 updates, fresh data improves predictive KL but component R² stays near zero. At 3,072 fresh updates, deeper-layer joint-belief R² reaches `0.62–0.73`; reused training overfits. | Sequence reuse confounds prediction, while geometry recovery additionally requires more optimization. |
+| Five-seed geometry-threshold test | Registered competence-only LOSO MSE is `0.01317` versus step-only `0.00554`; ratio `2.378`, failing the predicted `<0.80`. | Across initialization and training, optimizer step predicts component geometry better. A post-hoc exclusion of initialization reverses the comparison (`0.477`), so the conclusion is regime-sensitive. |
 | Causal erasure | Learned directions show average selectivity, but effects vary by seed and architecture and sometimes occur in untrained networks. | No evidence for a universally stable, selectively necessary final-layer factorization. |
 
 The full numerical record—including negative results and limitations—is in the [technical report](report.md).
 
 ## Key figures
+
+### Does geometry align with predictive competence?
+
+![Registered and post-hoc Mess3 competence alignment](figures/mess3_threshold_alignment.png)
+
+The registered analysis includes initialization and fails in the opposite direction: competence/step LOSO MSE ratio `2.378`. Initialization has extremely negative competence and dominates a global quadratic fit. The right panel is a clearly labeled post-hoc sensitivity analysis excluding step zero; it favors competence in all five seeds (`0.477`) but does not rescue the preregistered claim.
+
+![Paired Mess3 prediction and geometry learning curves](figures/mess3_threshold_learning.png)
+
+Five confirmation seeds are trained on identical fresh batches at learning rates 0.003 and 0.0015. Predictive competence begins improving well before block-2 component-posterior geometry; the slower optimizer shifts geometric recovery later in training.
 
 ### Predictive learning and geometric recovery
 
@@ -105,6 +116,7 @@ make train       # central config, seeds 0/1/2, both models
 make reproduce   # held-out probes and PCA records (trains if needed)
 make reproduce-mess3 # exact Mess3 process, three CPU Transformer seeds, weighted-belief metrics/figures
 make diagnose-mess3 # exploratory fresh-vs-reused Mess3 training, checkpoints, probes, figures
+make threshold-mess3 # registered five-seed, two-rate competence-vs-step learning curves
 make extension   # controlled causal erasure (trains if needed)
 make figures     # reads only results/*.jsonl
 make sweep-overlap # four overlap values × two models × three seeds
@@ -127,6 +139,8 @@ pytest -q
 
 `make diagnose-mess3` uses `configs/mess3_diagnosis.yaml`. Exploratory seeds 10/11 compare a deterministic fixed pool with newly sampled sequences at every update, holding initialization, architecture, batch size, optimizer, sequence length, and update count fixed within each checkpoint comparison. It evaluates steps 0/768/3,072 against exact predictive baselines and probes every block plus final normalization. The uncached recorded command took 3:02:13 wall time on CPU; the large wall/user-time discrepancy was not profiled, so no single cause is claimed. Complete matching checkpoints and training records are reused; probe metrics and both figures are regenerated.
 
+`make threshold-mess3` uses `configs/mess3_threshold.yaml`. Seeds 20–24 run on paired fresh batches at learning rates 0.003/0.0015 with seven checkpoints through 3,072 updates. The uncached registered grid took 30:57 wall time after reusing one 136.65-second pilot. It writes 70 training cells, 420 layer/control probe cells, one preregistered summary, and two figures. The vectorized sampler is distribution-tested and measured at 23.9× the reference sampler for a 64×64 batch; this benchmark is not treated as an explanation of the earlier wall/user-time discrepancy.
+
 ## Artifact map
 
 - `src/nonergodic_memory/data/hmm.py`: sampling and exact Bayesian filtering.
@@ -140,6 +154,7 @@ pytest -q
 - `figures/mess3_geometry.png` and `figures/mess3_metrics.png`: descriptive weighted-coordinate projections and quantitative held-out joint-belief/distortion metrics.
 - `results/mess3_diagnosis_*.jsonl`: exact predictive baselines, matched fresh/reused training curves, and layerwise normal/shuffled belief probes.
 - `figures/mess3_predictive_baselines.png` and `figures/mess3_learning_geometry.png`: the available predictive signal and the relationship between predictive KL and held-out joint-belief recovery.
+- `results/mess3_threshold_*.jsonl` and `figures/mess3_threshold_*.png`: paired five-seed learning curves, normal/shuffled probes, registered LOSO model comparison, and the labeled post-initialization sensitivity analysis.
 - `results/sweep_overlap_*.jsonl` and `figures/sweep_overlap.png`: the registered source-overlap extension.
 - `results/sweep_length_*.jsonl` and `figures/sweep_length.png`: the registered sequence-length follow-up.
 - `results/sweep_components_*.jsonl` and `figures/sweep_components.png`: the registered component-count sweep.

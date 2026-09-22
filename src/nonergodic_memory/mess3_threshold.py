@@ -163,31 +163,7 @@ def _quadratic_predictions(
     return np.column_stack((np.ones_like(test_z), test_z, test_z**2)) @ coefficients
 
 
-def analyze_threshold(config: dict, training: list[dict], probes: list[dict]) -> dict:
-    """Compare competence- and step-based geometry models without seed leakage."""
-    validate_threshold_grid(config, training, probes)
-    training_cells = {
-        (int(row["seed"]), float(row["learning_rate"]), int(row["step"])): row
-        for row in training
-    }
-    geometry_rows = [
-        row
-        for row in probes
-        if row["site"] == "block_2" and row["control"] == "none"
-    ]
-    joined = []
-    for row in geometry_rows:
-        key = (int(row["seed"]), float(row["learning_rate"]), int(row["step"]))
-        training_row = training_cells[key]
-        joined.append(
-            {
-                "seed": key[0],
-                "learning_rate": key[1],
-                "step": key[2],
-                "competence": float(training_row["competence"]),
-                "component_posterior_r2": float(row["component_posterior_r2"]),
-            }
-        )
+def _loso_comparison(joined: list[dict]) -> dict:
     seeds = sorted({row["seed"] for row in joined})
     folds = []
     competence_squared_error = 0.0
@@ -224,7 +200,55 @@ def analyze_threshold(config: dict, training: list[dict], probes: list[dict]) ->
         )
     competence_mse = competence_squared_error / total_cells
     step_mse = step_squared_error / total_cells
-    ratio = competence_mse / step_mse if step_mse > 0 else float("inf")
+    return {
+        "competence_loso_mse": competence_mse,
+        "log_step_loso_mse": step_mse,
+        "competence_to_step_mse_ratio": (
+            competence_mse / step_mse if step_mse > 0 else float("inf")
+        ),
+        "folds": folds,
+    }
+
+
+def analyze_threshold(config: dict, training: list[dict], probes: list[dict]) -> dict:
+    """Compare competence- and step-based geometry models without seed leakage."""
+    validate_threshold_grid(config, training, probes)
+    training_cells = {
+        (int(row["seed"]), float(row["learning_rate"]), int(row["step"])): row
+        for row in training
+    }
+    geometry_rows = [
+        row
+        for row in probes
+        if row["site"] == "block_2" and row["control"] == "none"
+    ]
+    joined = []
+    for row in geometry_rows:
+        key = (int(row["seed"]), float(row["learning_rate"]), int(row["step"]))
+        training_row = training_cells[key]
+        joined.append(
+            {
+                "seed": key[0],
+                "learning_rate": key[1],
+                "step": key[2],
+                "competence": float(training_row["competence"]),
+                "component_posterior_r2": float(row["component_posterior_r2"]),
+            }
+        )
+    primary = _loso_comparison(joined)
+    post_initialization_rows = [row for row in joined if row["step"] > 0]
+    if len({row["step"] for row in post_initialization_rows}) < 2:
+        post_initialization = {
+            "status": "unavailable",
+            "selection": "step > 0",
+            "reason": "requires at least two distinct post-initialization steps",
+        }
+    else:
+        post_initialization = {
+            "status": "post_hoc_not_registered",
+            "selection": "step > 0",
+            **_loso_comparison(post_initialization_rows),
+        }
     shuffled = [
         abs(float(row["component_posterior_r2"]))
         for row in probes
@@ -237,15 +261,15 @@ def analyze_threshold(config: dict, training: list[dict], probes: list[dict]) ->
         "base_config_sha256": config_digest(config),
         "target": "block_2_component_posterior_r2",
         "validation": "leave_one_seed_out",
-        "competence_loso_mse": competence_mse,
-        "log_step_loso_mse": step_mse,
-        "competence_to_step_mse_ratio": ratio,
+        **primary,
         "registered_ratio_threshold": 0.8,
         "max_abs_shuffled_component_r2": max_abs_shuffled,
         "shuffled_control_bound": 0.02,
         "shuffled_control_valid": shuffled_valid,
-        "registered_supported": bool(ratio < 0.8 and shuffled_valid),
-        "folds": folds,
+        "registered_supported": bool(
+            primary["competence_to_step_mse_ratio"] < 0.8 and shuffled_valid
+        ),
+        "posthoc_post_initialization_sensitivity": post_initialization,
     }
 
 
