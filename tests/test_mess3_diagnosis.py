@@ -103,6 +103,14 @@ def test_diagnostic_training_is_deterministic_and_rejects_unknown_condition(
         train_diagnostic(config, seed=7, condition="other", output_dir=tmp_path / "bad")
 
 
+def test_reused_diagnostic_requires_full_fixed_pool_batches(tmp_path: Path) -> None:
+    config = _tiny_diagnostic_config()
+    config["data"]["train_sequences"] = 17
+
+    with pytest.raises(ValueError, match="divisible"):
+        train_diagnostic(config, seed=7, condition="reused", output_dir=tmp_path)
+
+
 def test_checkpoint_geometry_covers_every_layer_and_control(tmp_path: Path) -> None:
     config = _tiny_diagnostic_config()
     train_diagnostic(config, seed=6, condition="fresh", output_dir=tmp_path)

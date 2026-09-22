@@ -12,12 +12,13 @@ Exploratory Mess3 training-diversity diagnosis, registered at `7cac6cb` before a
 
 - The registered primary prediction is supported in both exploratory seeds. At step 3,072, fresh/reused exact-predictive KL is 0.001649/0.203223 for seed 10 and 0.001301/0.179832 for seed 11.
 - Uniform predictive KL is 0.008175; exact eight-token Bayes is 0.003313. Fresh training recovers 79.8%/84.4% of the uniform-to-full-Bayes gap, while reused training becomes much worse than uniform.
+- At the original 768-update budget, fresh training improves predictive KL but joint-belief R² is only 0.378–0.387 and component-posterior R² remains near zero.
 - At step 3,072, fresh block-2 joint-belief R² is 0.726/0.616 versus reused 0.251/0.250. Fresh final-norm R² is 0.677/0.628. Shuffled-target joint R² stays near zero.
 - The uncached CPU command reported 3:02:13 wall time, almost consuming the four-hour exploratory cap.
 
 ## Interpretation
 
-Fixed-pool sequence reuse explains a large part of the initial small-model failure: reused training generalizes poorly and eventually damages both prediction and geometry, whereas fresh data produces useful long-history prediction and a substantial deeper-layer weighted-belief representation. The result remains exploratory with two seeds and does not match the paper's architecture, training budget, or reported R². It supports a mechanism for the failed CPU run rather than an exact numerical reproduction.
+Fixed-pool sequence reuse explains a large part of the initial predictive-generalization failure: reused training generalizes poorly and eventually damages prediction. It does not by itself explain the geometry failure. At 768 updates, fresh data improves prediction without recovering component identity; the substantial deeper-layer weighted-belief representation appears only with fresh data and a fourfold larger 3,072-update budget. The result remains exploratory with two seeds and does not match the paper's architecture, training budget, or reported R². It narrows the failure mechanism without establishing an exact numerical reproduction or a diversity-only causal explanation.
 
 ## Next smallest experiment
 

@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 import json
+from collections import Counter
 from pathlib import Path
+from typing import Iterable
 
 import torch
 
@@ -29,6 +31,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", default="configs/mess3_diagnosis.yaml")
     parser.add_argument("--mode", choices=("baselines", "train", "probe", "figures", "all"), default="all")
     parser.add_argument("--seeds", nargs="+", type=int, default=[10, 11])
+    parser.add_argument(
+        "--expected-seeds",
+        nargs="+",
+        type=int,
+        default=[10, 11],
+        help="authoritative complete artifact grid, independent of --seeds recomputation selection",
+    )
     parser.add_argument("--conditions", nargs="+", choices=("reused", "fresh"), default=["reused", "fresh"])
     parser.add_argument("--checkpoint-dir", default="checkpoints/mess3_diagnosis")
     parser.add_argument("--baseline-results", default="results/mess3_diagnosis_baselines.jsonl")
@@ -40,6 +49,44 @@ def parse_args() -> argparse.Namespace:
 
 def _checkpoint_path(root: Path, seed: int, condition: str, step: int) -> Path:
     return root / f"transformer_seed{seed}_{condition}_step{step}.pt"
+
+
+def _replace_keyed_jsonl(
+    path: str | Path, records: Iterable[dict], key_fields: tuple[str, ...]
+) -> None:
+    """Atomically replace exact result cells while preserving all other cells."""
+    destination = Path(path)
+    new_rows = list(records)
+    if not new_rows:
+        raise ValueError("replacement records cannot be empty")
+    new_digests = {row.get("config_sha256") for row in new_rows}
+    if len(new_digests) != 1 or None in new_digests:
+        raise ValueError("replacement records must share one config_sha256")
+    new_digest = next(iter(new_digests))
+    existing: list[dict] = []
+    if destination.exists():
+        existing = [json.loads(line) for line in destination.read_text().splitlines() if line.strip()]
+
+    def key(row: dict) -> tuple:
+        try:
+            return tuple(row[field] for field in key_fields)
+        except KeyError as error:
+            raise ValueError(f"record is missing key field {error.args[0]}") from error
+
+    for label, rows in (("existing", existing), ("replacement", new_rows)):
+        counts = Counter(key(row) for row in rows)
+        if any(count != 1 for count in counts.values()):
+            raise ValueError(f"duplicate {label} result cells")
+    new_keys = {key(row) for row in new_rows}
+    retained = [
+        row
+        for row in existing
+        if row.get("config_sha256") == new_digest and key(row) not in new_keys
+    ]
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = destination.with_suffix(destination.suffix + ".tmp")
+    write_jsonl(temporary, [*retained, *new_rows])
+    temporary.replace(destination)
 
 
 def _cache_complete(config: dict, root: Path, seeds: list[int], conditions: list[str]) -> bool:
@@ -72,18 +119,22 @@ def _training_results_complete(
         rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
     except (OSError, json.JSONDecodeError):
         return False
-    actual = {
-        (int(row["seed"]), row["condition"], int(row["step"]))
-        for row in rows
-        if row.get("record_type") == "diagnostic_training" and row.get("config_sha256") == digest
-    }
+    diagnostic_rows = [row for row in rows if row.get("record_type") == "diagnostic_training"]
+    if any(row.get("config_sha256") != digest for row in diagnostic_rows):
+        return False
+    try:
+        actual = Counter(
+            (int(row["seed"]), row["condition"], int(row["step"])) for row in diagnostic_rows
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
     expected = {
         (seed, condition, int(step))
         for seed in seeds
         for condition in conditions
         for step in config["train"]["checkpoint_steps"]
     }
-    return actual == expected
+    return all(actual[cell] == 1 for cell in expected) and all(count == 1 for count in actual.values())
 
 
 def main() -> None:
@@ -117,7 +168,11 @@ def main() -> None:
                     for row in run:
                         row.update(config=config_name, config_sha256=digest)
                     rows.extend(run)
-            write_jsonl(training_path, rows)
+            _replace_keyed_jsonl(
+                training_path,
+                rows,
+                ("config_sha256", "seed", "condition", "step"),
+            )
             print("wrote diagnostic training records")
         else:
             print("reused complete diagnostic checkpoints and training records")
@@ -134,12 +189,21 @@ def main() -> None:
                     for row in run:
                         row["config"] = config_name
                     rows.extend(run)
-        write_jsonl(args.probe_results, rows)
+        _replace_keyed_jsonl(
+            args.probe_results,
+            rows,
+            ("config_sha256", "seed", "condition", "step", "site", "control"),
+        )
         print("wrote diagnostic probe records")
 
     if args.mode in {"figures", "all"}:
         for path in generate_diagnosis_figures(
-            args.baseline_results, args.training_results, args.probe_results, args.output_dir
+            args.baseline_results,
+            args.training_results,
+            args.probe_results,
+            args.output_dir,
+            expected_seeds=args.expected_seeds,
+            expected_steps=config["train"]["checkpoint_steps"],
         ):
             print(f"generated {path}")
 

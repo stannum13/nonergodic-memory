@@ -169,11 +169,14 @@ def train_diagnostic(
     window = int(config["diagnosis"]["window"])
     length = int(data["sequence_length"])
     batch_size = int(train["batch_size"])
+    train_sequences = int(data["train_sequences"])
     if not 1 <= window < length:
         raise ValueError("diagnosis window must be shorter than sequence length")
+    if condition == "reused" and train_sequences % batch_size:
+        raise ValueError("reused train_sequences must be divisible by batch_size")
     checkpoint_steps = _checkpoint_steps(config)
     max_step = checkpoint_steps[-1]
-    fixed_pool = mixture.sample(int(data["train_sequences"]), length, seed + 101)
+    fixed_pool = mixture.sample(train_sequences, length, seed + 101)
     test_batch = mixture.sample(int(data["test_sequences"]), length, seed + 202)
     model = build_model("transformer", mixture.vocab_size, config["model"])
     optimizer = torch.optim.AdamW(

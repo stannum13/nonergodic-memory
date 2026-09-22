@@ -8,9 +8,76 @@ import yaml
 
 from nonergodic_memory.figures import _load_records, generate_figures
 from nonergodic_memory.experiment import load_config, train_one
+from mess3_diagnose import _replace_keyed_jsonl, _training_results_complete
 
 
 ROOT = Path(__file__).parents[1]
+
+
+def test_keyed_diagnosis_write_preserves_unselected_cells(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    existing = [
+        {"config_sha256": "digest", "seed": seed, "condition": condition, "step": 0,
+         "value": f"old-{seed}-{condition}"}
+        for seed in (10, 11)
+        for condition in ("reused", "fresh")
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in existing))
+
+    _replace_keyed_jsonl(
+        path,
+        [{"config_sha256": "digest", "seed": 10, "condition": "fresh", "step": 0,
+          "value": "new"}],
+        ("config_sha256", "seed", "condition", "step"),
+    )
+
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert len(rows) == 4
+    assert next(row for row in rows if row["seed"] == 10 and row["condition"] == "fresh")[
+        "value"
+    ] == "new"
+    assert next(row for row in rows if row["seed"] == 11 and row["condition"] == "reused")[
+        "value"
+    ] == "old-11-reused"
+
+
+def test_keyed_diagnosis_write_rejects_duplicate_existing_cells(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    row = {"config_sha256": "digest", "seed": 10, "condition": "fresh", "step": 0}
+    path.write_text(json.dumps(row) + "\n" + json.dumps(row) + "\n")
+
+    with pytest.raises(ValueError, match="duplicate"):
+        _replace_keyed_jsonl(path, [row], ("config_sha256", "seed", "condition", "step"))
+
+
+def test_keyed_diagnosis_write_discards_incompatible_configuration(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    old = {"config_sha256": "old", "seed": 10, "condition": "fresh", "step": 0}
+    new = {"config_sha256": "new", "seed": 10, "condition": "fresh", "step": 0}
+    path.write_text(json.dumps(old) + "\n")
+
+    _replace_keyed_jsonl(path, [new], ("config_sha256", "seed", "condition", "step"))
+
+    assert [json.loads(line) for line in path.read_text().splitlines()] == [new]
+
+
+def test_training_result_cache_rejects_conflicting_provenance(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    config = {"train": {"checkpoint_steps": [0, 2]}}
+    rows = [
+        {
+            "record_type": "diagnostic_training",
+            "config_sha256": "digest",
+            "seed": 10,
+            "condition": "fresh",
+            "step": step,
+        }
+        for step in (0, 2)
+    ]
+    rows.append({**rows[0], "config_sha256": "other"})
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    assert not _training_results_complete(path, "digest", config, [10], ["fresh"])
 
 
 def test_entrypoints_have_help() -> None:
@@ -46,7 +113,8 @@ def test_mess3_diagnosis_cli_writes_complete_tiny_grid(tmp_path: Path) -> None:
     }
     command = [
         sys.executable, str(ROOT / "src/mess3_diagnose.py"),
-        "--config", str(config_path), "--mode", "all", "--seeds", "6",
+        "--config", str(config_path), "--mode", "all", "--seeds", "6", "7",
+        "--expected-seeds", "6", "7",
         "--checkpoint-dir", str(tmp_path / "checkpoints"),
         "--baseline-results", str(paths["baseline"]),
         "--training-results", str(paths["training"]),
@@ -65,7 +133,8 @@ def test_mess3_diagnosis_cli_writes_complete_tiny_grid(tmp_path: Path) -> None:
     assert {(row["condition"], row["step"]) for row in training_rows} == {
         (condition, step) for condition in ("reused", "fresh") for step in (0, 2)
     }
-    assert len(probe_rows) == 2 * 2 * 3 * 2
+    assert len(training_rows) == 2 * 2 * 2
+    assert len(probe_rows) == 2 * 2 * 2 * 3 * 2
     assert (tmp_path / "figures/mess3_predictive_baselines.png").exists()
     assert (tmp_path / "figures/mess3_learning_geometry.png").exists()
 
@@ -75,6 +144,34 @@ def test_mess3_diagnosis_cli_writes_complete_tiny_grid(tmp_path: Path) -> None:
     )
     assert rerun.returncode == 0, rerun.stderr
     assert "reused complete diagnostic checkpoints" in rerun.stdout
+
+    untouched = {
+        (row["seed"], row["condition"], row["step"]): row
+        for row in training_rows
+        if row["seed"] == 7 or row["condition"] == "reused"
+    }
+    paths["training"].write_text(
+        "".join(
+            json.dumps(row) + "\n"
+            for row in training_rows
+            if not (row["seed"] == 6 and row["condition"] == "fresh" and row["step"] == 2)
+        )
+    )
+    partial = command.copy()
+    seed_index = partial.index("--seeds")
+    del partial[seed_index + 2]
+    partial.extend(["--conditions", "fresh"])
+    partial_run = subprocess.run(
+        partial, env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True, text=True, check=False,
+    )
+    assert partial_run.returncode == 0, partial_run.stderr
+    merged = [json.loads(line) for line in paths["training"].read_text().splitlines()]
+    assert len(merged) == 2 * 2 * 2
+    merged_by_cell = {(row["seed"], row["condition"], row["step"]): row for row in merged}
+    assert {key: merged_by_cell[key] for key in untouched} == untouched
+    merged_probes = [json.loads(line) for line in paths["probe"].read_text().splitlines()]
+    assert len(merged_probes) == 2 * 2 * 2 * 3 * 2
 
 
 def test_mess3_cli_records_generator_without_fabricated_overlap(tmp_path: Path) -> None:
