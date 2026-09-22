@@ -10,26 +10,34 @@ from pathlib import Path
 
 import torch
 
-from nonergodic_memory.experiment import config_digest, load_config
+from nonergodic_memory.experiment import config_digest, load_config, write_jsonl
 from nonergodic_memory.mess3_threshold import (
     _rate_config,
+    analyze_threshold,
     replace_threshold_records,
     run_threshold_probes,
     run_threshold_training,
     threshold_checkpoint_path,
     validate_threshold_grid,
 )
+from nonergodic_memory.mess3_threshold_figures import generate_threshold_figures
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--config", default="configs/mess3_threshold.yaml")
-    parser.add_argument("--mode", choices=("train", "probe", "all"), default="all")
+    parser.add_argument(
+        "--mode",
+        choices=("train", "probe", "analyze", "figures", "all"),
+        default="all",
+    )
     parser.add_argument("--seeds", nargs="+", type=int)
     parser.add_argument("--learning-rates", nargs="+", type=float)
     parser.add_argument("--checkpoint-dir", default="checkpoints/mess3_threshold")
     parser.add_argument("--training-results", default="results/mess3_threshold_training.jsonl")
     parser.add_argument("--probe-results", default="results/mess3_threshold_probes.jsonl")
+    parser.add_argument("--summary-results", default="results/mess3_threshold_summary.jsonl")
+    parser.add_argument("--output-dir", default="figures")
     return parser.parse_args()
 
 
@@ -137,10 +145,26 @@ def main() -> None:
         )
         print("wrote threshold probe records")
 
+    if args.mode in {"analyze", "all"}:
+        training = _load_rows(args.training_results)
+        probes = _load_rows(args.probe_results)
+        validate_threshold_grid(config, training, probes)
+        summary = analyze_threshold(config, training, probes)
+        write_jsonl(args.summary_results, [summary])
+        print("wrote threshold summary")
+
+    if args.mode in {"figures", "all"}:
+        training = _load_rows(args.training_results)
+        probes = _load_rows(args.probe_results)
+        summaries = _load_rows(args.summary_results)
+        if len(summaries) != 1 or summaries[0].get("record_type") != "threshold_summary":
+            raise SystemExit("threshold summary file must contain exactly one summary")
+        for path in generate_threshold_figures(
+            config, training, probes, summaries[0], args.output_dir
+        ):
+            print(f"generated {path}")
+
     if args.mode == "all":
-        validate_threshold_grid(
-            config, _load_rows(args.training_results), _load_rows(args.probe_results)
-        )
         print("validated complete threshold grid")
 
 

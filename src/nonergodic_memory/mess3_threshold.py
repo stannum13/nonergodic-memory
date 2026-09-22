@@ -8,6 +8,8 @@ from collections import Counter
 from pathlib import Path
 from typing import Iterable
 
+import numpy as np
+
 from .experiment import config_digest, write_jsonl
 from .mess3_diagnosis import evaluate_checkpoint_geometry, train_diagnostic
 
@@ -143,6 +145,108 @@ def validate_threshold_grid(config: dict, training: list[dict], probes: list[dic
         raise ValueError("duplicate threshold probe cells")
     if set(probe_keys) != expected_probes:
         raise ValueError("threshold probe grid is incomplete or contains unexpected cells")
+
+
+def _quadratic_predictions(
+    train_x: np.ndarray,
+    train_y: np.ndarray,
+    test_x: np.ndarray,
+) -> np.ndarray:
+    center = float(train_x.mean())
+    scale = float(train_x.std())
+    if not np.isfinite(scale) or scale <= 0:
+        raise ValueError("quadratic predictor requires varying finite inputs")
+    train_z = (train_x - center) / scale
+    test_z = (test_x - center) / scale
+    design = np.column_stack((np.ones_like(train_z), train_z, train_z**2))
+    coefficients, *_ = np.linalg.lstsq(design, train_y, rcond=None)
+    return np.column_stack((np.ones_like(test_z), test_z, test_z**2)) @ coefficients
+
+
+def analyze_threshold(config: dict, training: list[dict], probes: list[dict]) -> dict:
+    """Compare competence- and step-based geometry models without seed leakage."""
+    validate_threshold_grid(config, training, probes)
+    training_cells = {
+        (int(row["seed"]), float(row["learning_rate"]), int(row["step"])): row
+        for row in training
+    }
+    geometry_rows = [
+        row
+        for row in probes
+        if row["site"] == "block_2" and row["control"] == "none"
+    ]
+    joined = []
+    for row in geometry_rows:
+        key = (int(row["seed"]), float(row["learning_rate"]), int(row["step"]))
+        training_row = training_cells[key]
+        joined.append(
+            {
+                "seed": key[0],
+                "learning_rate": key[1],
+                "step": key[2],
+                "competence": float(training_row["competence"]),
+                "component_posterior_r2": float(row["component_posterior_r2"]),
+            }
+        )
+    seeds = sorted({row["seed"] for row in joined})
+    folds = []
+    competence_squared_error = 0.0
+    step_squared_error = 0.0
+    total_cells = 0
+    for held_out_seed in seeds:
+        train_rows = [row for row in joined if row["seed"] != held_out_seed]
+        test_rows = [row for row in joined if row["seed"] == held_out_seed]
+        train_y = np.asarray([row["component_posterior_r2"] for row in train_rows])
+        test_y = np.asarray([row["component_posterior_r2"] for row in test_rows])
+        competence_prediction = _quadratic_predictions(
+            np.asarray([row["competence"] for row in train_rows]),
+            train_y,
+            np.asarray([row["competence"] for row in test_rows]),
+        )
+        step_prediction = _quadratic_predictions(
+            np.log1p([row["step"] for row in train_rows]),
+            train_y,
+            np.log1p([row["step"] for row in test_rows]),
+        )
+        competence_mse = float(np.mean((test_y - competence_prediction) ** 2))
+        step_mse = float(np.mean((test_y - step_prediction) ** 2))
+        competence_squared_error += competence_mse * len(test_rows)
+        step_squared_error += step_mse * len(test_rows)
+        total_cells += len(test_rows)
+        folds.append(
+            {
+                "held_out_seed": held_out_seed,
+                "training_seeds": sorted(seed for seed in seeds if seed != held_out_seed),
+                "test_cells": len(test_rows),
+                "competence_mse": competence_mse,
+                "step_mse": step_mse,
+            }
+        )
+    competence_mse = competence_squared_error / total_cells
+    step_mse = step_squared_error / total_cells
+    ratio = competence_mse / step_mse if step_mse > 0 else float("inf")
+    shuffled = [
+        abs(float(row["component_posterior_r2"]))
+        for row in probes
+        if row["control"] == "shuffled_labels"
+    ]
+    max_abs_shuffled = max(shuffled)
+    shuffled_valid = max_abs_shuffled <= 0.02
+    return {
+        "record_type": "threshold_summary",
+        "base_config_sha256": config_digest(config),
+        "target": "block_2_component_posterior_r2",
+        "validation": "leave_one_seed_out",
+        "competence_loso_mse": competence_mse,
+        "log_step_loso_mse": step_mse,
+        "competence_to_step_mse_ratio": ratio,
+        "registered_ratio_threshold": 0.8,
+        "max_abs_shuffled_component_r2": max_abs_shuffled,
+        "shuffled_control_bound": 0.02,
+        "shuffled_control_valid": shuffled_valid,
+        "registered_supported": bool(ratio < 0.8 and shuffled_valid),
+        "folds": folds,
+    }
 
 
 def replace_threshold_records(

@@ -5,12 +5,14 @@ import pytest
 import torch
 
 from nonergodic_memory.mess3_threshold import (
+    analyze_threshold,
     replace_threshold_records,
     run_threshold_probes,
     run_threshold_training,
     threshold_checkpoint_path,
     validate_threshold_grid,
 )
+from nonergodic_memory.mess3_threshold_figures import generate_threshold_figures
 
 
 def _tiny_threshold_config() -> dict:
@@ -127,3 +129,89 @@ def test_threshold_keyed_replacement_preserves_unselected_cells(tmp_path: Path) 
     rows = [json.loads(line) for line in path.read_text().splitlines()]
     assert len(rows) == 4
     assert sum(row["value"] == "new" for row in rows) == 1
+
+
+def _synthetic_threshold_grid() -> tuple[dict, list[dict], list[dict]]:
+    config = _tiny_threshold_config()
+    config["threshold"] = {
+        "seeds": [20, 21, 22, 23, 24],
+        "learning_rates": [0.003, 0.0015],
+    }
+    config["train"]["checkpoint_steps"] = [0, 1, 2, 3]
+    from nonergodic_memory.experiment import config_digest
+
+    base_digest = config_digest(config)
+    schedules = {0.003: [0.0, 0.35, 0.75, 0.95], 0.0015: [0.0, 0.10, 0.35, 0.75]}
+    training = []
+    probes = []
+    for seed in config["threshold"]["seeds"]:
+        for rate in config["threshold"]["learning_rates"]:
+            for step, competence in zip(config["train"]["checkpoint_steps"], schedules[rate]):
+                geometry = competence**2 + (seed - 22) * 0.001
+                training.append(
+                    {
+                        "record_type": "threshold_training",
+                        "base_config_sha256": base_digest,
+                        "config_sha256": f"rate-{rate}",
+                        "seed": seed,
+                        "learning_rate": rate,
+                        "step": step,
+                        "competence": competence,
+                        "kl_exact": 1.0 - competence,
+                    }
+                )
+                for site in ("block_1", "block_2", "final_norm"):
+                    for control in ("none", "shuffled_labels"):
+                        probes.append(
+                            {
+                                "record_type": "threshold_probe",
+                                "base_config_sha256": base_digest,
+                                "config_sha256": f"rate-{rate}",
+                                "seed": seed,
+                                "learning_rate": rate,
+                                "step": step,
+                                "site": site,
+                                "control": control,
+                                "component_posterior_r2": geometry if control == "none" else 0.0,
+                                "joint_belief_r2": 0.5 * geometry if control == "none" else 0.0,
+                            }
+                        )
+    return config, training, probes
+
+
+def test_threshold_analysis_uses_leave_one_seed_out_and_registered_criterion() -> None:
+    config, training, probes = _synthetic_threshold_grid()
+
+    summary = analyze_threshold(config, training, probes)
+
+    assert summary["record_type"] == "threshold_summary"
+    assert summary["competence_to_step_mse_ratio"] < 0.8
+    assert summary["registered_supported"]
+    assert summary["shuffled_control_valid"]
+    assert {fold["held_out_seed"] for fold in summary["folds"]} == {20, 21, 22, 23, 24}
+    for fold in summary["folds"]:
+        assert fold["held_out_seed"] not in fold["training_seeds"]
+        assert fold["test_cells"] == 2 * 4
+
+
+def test_threshold_analysis_rejects_out_of_bounds_shuffled_control() -> None:
+    config, training, probes = _synthetic_threshold_grid()
+    probes[1]["component_posterior_r2"] = 0.021
+
+    summary = analyze_threshold(config, training, probes)
+
+    assert not summary["shuffled_control_valid"]
+    assert not summary["registered_supported"]
+
+
+def test_threshold_figures_are_generated_from_complete_raw_grid(tmp_path: Path) -> None:
+    config, training, probes = _synthetic_threshold_grid()
+    summary = analyze_threshold(config, training, probes)
+
+    paths = generate_threshold_figures(config, training, probes, summary, tmp_path)
+
+    assert {path.name for path in paths} == {
+        "mess3_threshold_learning.png",
+        "mess3_threshold_alignment.png",
+    }
+    assert all(path.stat().st_size > 0 for path in paths)

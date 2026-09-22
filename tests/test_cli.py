@@ -125,6 +125,8 @@ def test_mess3_threshold_cli_writes_and_preserves_tiny_grid(tmp_path: Path) -> N
     config_path.write_text(yaml.safe_dump(config))
     training_path = tmp_path / "training.jsonl"
     probe_path = tmp_path / "probes.jsonl"
+    summary_path = tmp_path / "summary.jsonl"
+    figure_dir = tmp_path / "figures"
     command = [
         sys.executable,
         str(ROOT / "src/mess3_threshold.py"),
@@ -138,6 +140,10 @@ def test_mess3_threshold_cli_writes_and_preserves_tiny_grid(tmp_path: Path) -> N
         str(training_path),
         "--probe-results",
         str(probe_path),
+        "--summary-results",
+        str(summary_path),
+        "--output-dir",
+        str(figure_dir),
     ]
     environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 
@@ -150,6 +156,11 @@ def test_mess3_threshold_cli_writes_and_preserves_tiny_grid(tmp_path: Path) -> N
     probes = [json.loads(line) for line in probe_path.read_text().splitlines()]
     assert len(training) == 2 * 2 * 2
     assert len(probes) == 2 * 2 * 2 * 3 * 2
+    summary = [json.loads(line) for line in summary_path.read_text().splitlines()]
+    assert len(summary) == 1
+    assert summary[0]["record_type"] == "threshold_summary"
+    assert (figure_dir / "mess3_threshold_learning.png").exists()
+    assert (figure_dir / "mess3_threshold_alignment.png").exists()
     partial = [
         *command,
         "--seeds",
