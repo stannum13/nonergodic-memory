@@ -1,12 +1,36 @@
+from pathlib import Path
+
 import numpy as np
 import pytest
+import torch
 
 from nonergodic_memory.data import make_mess3_mixture
 from nonergodic_memory.mess3_diagnosis import (
     competence,
     predictive_baselines,
     predictive_kl,
+    train_diagnostic,
 )
+
+
+def _tiny_diagnostic_config() -> dict:
+    return {
+        "data": {
+            "generator": "mess3",
+            "sequence_length": 8,
+            "train_sequences": 16,
+            "test_sequences": 8,
+        },
+        "model": {"width": 8, "layers": 2, "heads": 2, "max_length": 16},
+        "train": {
+            "batch_size": 4,
+            "learning_rate": 0.01,
+            "weight_decay": 0.01,
+            "checkpoint_steps": [0, 2],
+        },
+        "diagnosis": {"window": 3},
+        "probe": {"train_sequences": 8, "test_sequences": 8},
+    }
 
 
 def test_predictive_kl_and_competence_reference_points() -> None:
@@ -41,3 +65,38 @@ def test_predictive_baselines_reject_invalid_window() -> None:
     batch = mixture.sample(8, 6, seed=4)
     with pytest.raises(ValueError, match="window"):
         predictive_baselines(mixture, batch, batch, window=6)
+
+
+def test_diagnostic_training_matches_initialization_and_requested_steps(tmp_path: Path) -> None:
+    config = _tiny_diagnostic_config()
+    reused = train_diagnostic(config, seed=5, condition="reused", output_dir=tmp_path / "reused")
+    fresh = train_diagnostic(config, seed=5, condition="fresh", output_dir=tmp_path / "fresh")
+
+    assert [row["step"] for row in reused] == [0, 2]
+    assert [row["step"] for row in fresh] == [0, 2]
+    reused_zero = torch.load(
+        tmp_path / "reused/transformer_seed5_reused_step0.pt", weights_only=False
+    )
+    fresh_zero = torch.load(
+        tmp_path / "fresh/transformer_seed5_fresh_step0.pt", weights_only=False
+    )
+    assert reused_zero["condition"] == "reused"
+    assert fresh_zero["condition"] == "fresh"
+    for name, value in reused_zero["state_dict"].items():
+        torch.testing.assert_close(value, fresh_zero["state_dict"][name], rtol=0, atol=0)
+    assert all(np.isfinite(row["kl_exact"]) for row in reused + fresh)
+    assert all(row["updates"] == row["step"] for row in reused + fresh)
+
+
+def test_diagnostic_training_is_deterministic_and_rejects_unknown_condition(
+    tmp_path: Path,
+) -> None:
+    config = _tiny_diagnostic_config()
+    first = train_diagnostic(config, seed=7, condition="fresh", output_dir=tmp_path / "a")
+    second = train_diagnostic(config, seed=7, condition="fresh", output_dir=tmp_path / "b")
+    comparable = ("step", "nll", "kl_exact", "uniform_kl", "competence")
+    assert [[row[key] for key in comparable] for row in first] == [
+        [row[key] for key in comparable] for row in second
+    ]
+    with pytest.raises(ValueError, match="condition"):
+        train_diagnostic(config, seed=7, condition="other", output_dir=tmp_path / "bad")
