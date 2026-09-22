@@ -6,7 +6,7 @@ For the exact published two-Mess3 mixture, component geometry emerges when the m
 
 ## Last experiment
 
-Registered Mess3 geometry-threshold test, committed at `a8491b5` before any threshold checkpoint, result, or figure. Confirmation seeds 20–24 were trained on paired fresh batches at learning rates 0.003/0.0015 and probed at seven checkpoints from initialization through 3,072 updates. The primary leave-one-seed-out comparison predicts block-2 component-posterior R² from either competence or `log1p(step)`.
+Registered Mess3 geometry-threshold test, committed at `2bd1072` before any threshold checkpoint, result, or figure. Confirmation seeds 20–24 were trained on paired fresh batches at learning rates 0.003/0.0015 and probed at seven checkpoints from initialization through 3,072 updates. The primary leave-one-seed-out comparison predicts block-2 component-posterior R² from either competence or `log1p(step)`.
 
 ## Result
 
