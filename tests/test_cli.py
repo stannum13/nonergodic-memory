@@ -147,11 +147,22 @@ def test_mess3_threshold_cli_writes_and_preserves_tiny_grid(tmp_path: Path) -> N
     ]
     environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
 
+    pilot = command.copy()
+    pilot[pilot.index("all")] = "train"
+    pilot.extend(["--seeds", "6", "--learning-rates", "0.01"])
+    pilot_run = subprocess.run(
+        pilot, env=environment, capture_output=True, text=True, check=False
+    )
+    assert pilot_run.returncode == 0, pilot_run.stderr
+    pilot_checkpoint = tmp_path / "checkpoints/lr_0p01/transformer_seed6_fresh_step2.pt"
+    pilot_mtime = pilot_checkpoint.stat().st_mtime_ns
+
     completed = subprocess.run(
         command, env=environment, capture_output=True, text=True, check=False
     )
 
     assert completed.returncode == 0, completed.stderr
+    assert pilot_checkpoint.stat().st_mtime_ns == pilot_mtime
     training = [json.loads(line) for line in training_path.read_text().splitlines()]
     probes = [json.loads(line) for line in probe_path.read_text().splitlines()]
     assert len(training) == 2 * 2 * 2

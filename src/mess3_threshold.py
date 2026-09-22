@@ -114,18 +114,31 @@ def main() -> None:
     training_path = Path(args.training_results)
 
     if args.mode in {"train", "all"}:
-        cached = _cache_complete(config, seeds, learning_rates, checkpoint_root)
-        recorded = _training_records_complete(training_path, config, seeds, learning_rates)
-        if cached and recorded:
-            print("reused complete threshold checkpoints and training records")
-        else:
-            rows = run_threshold_training(config, seeds, learning_rates, checkpoint_root)
+        rows = []
+        reused = 0
+        for seed in seeds:
+            for learning_rate in learning_rates:
+                cached = _cache_complete(config, [seed], [learning_rate], checkpoint_root)
+                recorded = _training_records_complete(
+                    training_path, config, [seed], [learning_rate]
+                )
+                if cached and recorded:
+                    reused += 1
+                else:
+                    rows.extend(
+                        run_threshold_training(
+                            config, [seed], [learning_rate], checkpoint_root
+                        )
+                    )
+        if rows:
             replace_threshold_records(
                 training_path,
                 rows,
                 ("base_config_sha256", "seed", "learning_rate", "step"),
             )
             print("wrote threshold training records")
+        if reused:
+            print(f"reused {reused} complete threshold training cells")
 
     if args.mode in {"probe", "all"}:
         if not _cache_complete(config, seeds, learning_rates, checkpoint_root):
