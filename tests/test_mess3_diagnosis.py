@@ -10,6 +10,7 @@ from nonergodic_memory.mess3_diagnosis import (
     evaluate_checkpoint_geometry,
     predictive_baselines,
     predictive_kl,
+    sample_from_config,
     train_diagnostic,
 )
 
@@ -66,6 +67,22 @@ def test_predictive_baselines_reject_invalid_window() -> None:
     batch = mixture.sample(8, 6, seed=4)
     with pytest.raises(ValueError, match="window"):
         predictive_baselines(mixture, batch, batch, window=6)
+
+
+def test_diagnostic_sampler_backend_is_explicit_and_deterministic() -> None:
+    mixture = make_mess3_mixture()
+    config = _tiny_diagnostic_config()
+    config["data"]["sampler"] = "vectorized"
+
+    actual = sample_from_config(mixture, config, 12, 8, seed=33)
+    expected = mixture.sample_vectorized(12, 8, seed=33)
+
+    np.testing.assert_array_equal(actual.tokens, expected.tokens)
+    np.testing.assert_array_equal(actual.states, expected.states)
+    np.testing.assert_array_equal(actual.components, expected.components)
+    config["data"]["sampler"] = "unknown"
+    with pytest.raises(ValueError, match="sampler"):
+        sample_from_config(mixture, config, 12, 8, seed=33)
 
 
 def test_diagnostic_training_matches_initialization_and_requested_steps(tmp_path: Path) -> None:

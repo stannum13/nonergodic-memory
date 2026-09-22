@@ -21,6 +21,7 @@ from nonergodic_memory.experiment import (
 from nonergodic_memory.mess3_diagnosis import (
     evaluate_checkpoint_geometry,
     predictive_baselines,
+    sample_from_config,
     train_diagnostic,
 )
 from nonergodic_memory.mess3_diagnosis_figures import generate_diagnosis_figures
@@ -148,8 +149,16 @@ def main() -> None:
     if args.mode in {"baselines", "all"}:
         mixture = mixture_from_config(config)
         length = int(config["data"]["sequence_length"])
-        fit = mixture.sample(int(config["diagnosis"]["baseline_fit_sequences"]), length, 606)
-        test = mixture.sample(int(config["data"]["test_sequences"]), length, 707)
+        fit = sample_from_config(
+            mixture,
+            config,
+            int(config["diagnosis"]["baseline_fit_sequences"]),
+            length,
+            606,
+        )
+        test = sample_from_config(
+            mixture, config, int(config["data"]["test_sequences"]), length, 707
+        )
         rows = predictive_baselines(mixture, fit, test, int(config["diagnosis"]["window"]))
         for row in rows:
             row.update(config=config_name, config_sha256=digest, generator="mess3", **provenance)
