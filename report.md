@@ -6,7 +6,7 @@ This artifact tests whether small GRU and decoder-only Transformer predictors li
 
 The causal extension uses separate direction-fit, evaluator-fit, and test sequences. Learned erasures were selective on average, but effects varied sharply by architecture and seed and also occurred in untrained networks. Next-token loss changed little except for Transformer component erasure. The extension therefore falsifies the strong claim that training consistently creates stable, selectively necessary final-layer subspaces in this small setting.
 
-A separately registered direct Mess3 experiment now matches the paper's source process and six weighted joint-belief targets. Its CPU Transformer fails the registered trained-over-untrained prediction in all three seeds: joint R² is 0.3212 ± 0.0047 trained versus 0.3362 ± 0.0058 untrained. Pairwise-distance R² is negative in both conditions. This negative result is retained without changing the registered configuration; substantial architecture and compute differences prevent treating it as a refutation of the published larger-model result.
+A separately registered direct Mess3 experiment now matches the paper's source process and six weighted joint-belief targets. Its first fixed-pool CPU run fails the registered trained-over-untrained prediction in all three seeds: joint R² is 0.3212 ± 0.0047 trained versus 0.3362 ± 0.0058 untrained. That negative result is retained unchanged. A subsequent registered exploratory diagnosis isolates training-sequence diversity at matched update count. Fresh-sequence training supports its primary prediction in both exploratory seeds, recovers 80–84% of the uniform-to-Bayes predictive gap, and raises deeper-layer joint-belief R² to 0.62–0.73. Fixed-pool training instead overfits sharply by step 3,072. The diagnosis explains why the initial small run was not a strong test of geometry, while its two-seed exploratory status and remaining architecture differences prevent claiming an exact reproduction of the published result.
 
 ## Relation to the target result
 
@@ -60,6 +60,45 @@ Held-out training-evaluation NLL is 1.108181/1.104852/1.106930 nats, with exact-
 `results/mess3_training.jsonl` contains three training rows. `results/mess3_reproduction.jsonl` contains 12 probe cells (three seeds × trained/untrained × normal/shuffled), 6,000 geometry rows (2,000 per seed), and 1,500 descriptive PCA rows. Every probe has finite joint metrics. Every geometry row has six exact and six reconstructed finite coordinates; exact targets are nonnegative and their maximum sum-to-one error is `4.44e-16`. Both `figures/mess3_geometry.png` and `figures/mess3_metrics.png` are generated only from these records. The geometry panels are descriptive projections; quantitative evidence is supplied by the held-out scores, not by visual resemblance.
 
 The registered result is negative: this CPU training protocol does not improve weighted-belief recovery over its initialized controls. It does not reproduce the paper's high-fidelity representation and supplies no Mess3 causal-erasure result. The earlier conceptual reproduction and causal extension remain separate experiments. All failed comparisons are retained, with no post-result tuning or seed replacement.
+
+### Registered training-diversity diagnosis
+
+The next experiment was registered in `STATE.md` at commit `7cac6cb` before creating any diagnosis checkpoint, record, or figure. Configuration digest `aa2de784730aa352` compares two conditions for exploratory seeds 10 and 11: `reused` traverses a fixed pool of 2,048 sequences, while `fresh` samples a new batch of 64 sequences for every optimizer update. Initialization, width-32 two-layer architecture, length 64, batch size 64, AdamW settings, supervised tokens per update, checkpoints, and held-out evaluation sequences are matched. Checkpoints are at initialization, 768 updates, and 3,072 updates. The registered primary prediction was lower held-out exact-predictive KL for fresh training at step 3,072 in both seeds.
+
+Four reference predictors quantify how much useful history the task contains. All values use the same held-out positions with a complete eight-token window:
+
+| predictor | exact-predictive KL | sampled NLL | uniform-to-Bayes gap recovered |
+|---|---:|---:|---:|
+| uniform | 0.008175 | 1.098612 | 0.000 |
+| fitted last token | 0.008028 | 1.098653 | 0.018 |
+| exact eight-token Bayes | 0.003313 | 1.093915 | 0.595 |
+| exact full-history Bayes | 0.000000 | 1.090834 | 1.000 |
+
+The last-token predictor barely improves on uniform, while eight observations recover about 59% of the available predictive advantage. This confirms that the task rewards history integration and supplies a meaningful scale for neural performance.
+
+The registered fresh-data prediction is supported in both exploratory seeds:
+
+| seed | condition | KL at step 0 | KL at step 768 | KL at step 3,072 | competence at step 3,072 |
+|---:|---|---:|---:|---:|---:|
+| 10 | reused | 0.067788 | 0.015030 | 0.203223 | −23.898 |
+| 10 | fresh | 0.067788 | 0.006586 | 0.001649 | 0.798 |
+| 11 | reused | 0.072412 | 0.012475 | 0.179832 | −20.511 |
+| 11 | fresh | 0.072412 | 0.006839 | 0.001301 | 0.844 |
+
+Both conditions begin from bit-identical same-seed parameters. At 768 updates, fresh training already beats uniform while remaining worse than the exact eight-token Bayes baseline; reused training remains worse than uniform. Continued fixed-pool optimization then damages held-out prediction severely despite seeing exactly the same number of supervised tokens per update. Fresh training approaches the full-history Bayes predictor instead. Thus limited sequence diversity explains a large part of the initial CPU failure under this matched setup.
+
+Layerwise held-out probes were fitted on 1,024 new sequences and tested on 512 different sequences. At step 3,072, normal-control joint-belief results are:
+
+| seed | condition | block 1 R² | block 2 R² | final norm R² | block 2 component R² |
+|---:|---|---:|---:|---:|---:|
+| 10 | reused | 0.325 | 0.251 | 0.207 | 0.002 |
+| 10 | fresh | 0.474 | 0.726 | 0.677 | 0.497 |
+| 11 | reused | 0.302 | 0.250 | 0.216 | 0.002 |
+| 11 | fresh | 0.474 | 0.616 | 0.628 | 0.188 |
+
+Fresh-data geometry is strongest after block 2 rather than final normalization. Component-posterior recovery, which was absent at initialization and in reused training, emerges alongside predictive competence. Conditional-state R² after fresh training is 0.91–0.93 across the two blocks, and block-2 pairwise-distance R² becomes positive in both seeds (0.327 and 0.097). Every shuffled-target joint-belief R² lies between −0.0048 and 0.0009. The relationship is therefore quantitative and held out; the accompanying plot is descriptive.
+
+The result does not reach the published joint-belief R² near 0.985, and the experiment has only two explicitly exploratory seeds. It isolates fixed-pool reuse versus fresh data but does not resolve the remaining architecture, initialization, optimizer, context, or total-compute differences. The uncached CPU command reported 3:02:13 wall time (957.8 seconds user, 53.0 seconds system), nearly exhausting the four-hour exploratory cap because fresh sequences are generated by the reference Python sampler. No five-seed confirmation was launched. The next economical step is to optimize sampling without changing the data law, benchmark it, and preregister fresh confirmatory seeds if projected compute fits a new budget.
 
 ## Analytic ground truth
 
@@ -251,7 +290,7 @@ The direction therefore generalizes from Transformer to GRU, although the GRU ma
 - Length-nine-trained Transformers had worse eight-window KL and component R² than the restarted length-64 models in every seed, falsifying the predicted short-training rescue under fixed sequence count. Their training token budgets are not equal.
 - Matching short training to the long model's supervised-token and optimizer-step budgets improves short-window KL in every seed, overturning the fixed-count inference. Batch size and training-sequence diversity move with budget, so the improvement is not uniquely attributable to token count.
 - The matched-budget improvement generalizes to the GRU but is modest (+0.0054 nats KL reduction); GRU conditional-state R² is unchanged.
-- The earlier simple two-state sources do not recreate Mess3's reachable-state geometry. The direct Mess3 experiment now reproduces that process, but fails the registered trained-over-untrained weighted-belief test in every seed; pairwise-distance R² is negative. Neither PCA separation nor visual resemblance is evidence for accurate telescoping-geometry recovery.
+- The earlier simple two-state sources do not recreate Mess3's reachable-state geometry. The initial direct Mess3 fixed-pool experiment reproduces that process but fails the registered trained-over-untrained test. The later diversity diagnosis shows that this failure is strongly confounded by predictive generalization: fresh training improves joint-belief recovery and makes block-2 distance R² positive in both exploratory seeds. The diagnosis has only two seeds and still falls well below the published R².
 - The central result still covers only overlap 0.35, two components, length 32, and width 32. The exploratory one-axis sweeps and one matched 2×2 overlap-by-context grid leave most cross-axis interactions untested.
 - Erasure is based on a single linear probe fit. Iterative nullspace projection or nonlinear adversaries could find residual information not measured here.
 
@@ -262,6 +301,10 @@ The checked-in central run used CPU only. In the observed environment, six train
 ### Mess3 audit
 
 After preregistration at `74dcff2`, the first `/usr/bin/time -p make reproduce-mess3` ran with no Mess3 checkpoints or outputs and completed in 162.96 seconds (140.92 user, 15.67 system). CPU provenance is Python 3.14.2, NumPy 2.4.1, and PyTorch 2.11.0. `/usr/bin/time -p pytest -q` passed all 82 tests in 37.84 seconds (40.65 seconds command wall time). The second `/usr/bin/time -p make reproduce-mess3` completed in 34.68 seconds (31.46 user, 2.13 system), reused all three checkpoints without changing their bytes or modification times, and regenerated both figures. Both JSONL files matched the first run in parsed values and bytes; both PNGs were byte-identical. This verifies cached-checkpoint determinism in the recorded environment, not checkpoint-free retraining or equality across library versions. The initial failed prediction is retained in full.
+
+### Training-diversity diagnosis audit
+
+The exploratory diagnosis was preregistered at `7cac6cb`; immediately beforehand, no diagnosis checkpoint, JSONL file, or figure existed. The first `time make diagnose-mess3` completed the full two-seed fresh/reused grid in 3:02:13 wall time (957.77 seconds user, 52.97 seconds system). It created four baseline rows, 12 training rows, 72 probe rows, 12 checkpoints, and two figures. All records share configuration digest `aa2de784730aa352`; probe sequence overlap is zero and every reported metric is finite. A cached rerun took 2:10.45, explicitly reused the complete checkpoint/training-record set, and regenerated the baselines, probes, and figures. All three JSONL SHA-256 hashes and both PNG hashes were unchanged. The long initial wall time reflects the deliberately simple reference sampler used for fresh batches and prevents claiming the current command is a cheap five-seed confirmation path.
 
 ### Fresh-clone audit
 
