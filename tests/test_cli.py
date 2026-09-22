@@ -15,7 +15,7 @@ ROOT = Path(__file__).parents[1]
 
 def test_entrypoints_have_help() -> None:
     environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
-    for script in ("train.py", "probe.py", "intervene.py", "context_restart.py"):
+    for script in ("train.py", "probe.py", "intervene.py", "context_restart.py", "mess3_diagnose.py"):
         completed = subprocess.run(
             [sys.executable, str(ROOT / "src" / script), "--help"],
             env=environment,
@@ -25,6 +25,56 @@ def test_entrypoints_have_help() -> None:
         )
         assert completed.returncode == 0
         assert "--config" in completed.stdout
+
+
+def test_mess3_diagnosis_cli_writes_complete_tiny_grid(tmp_path: Path) -> None:
+    config = {
+        "data": {"generator": "mess3", "sequence_length": 8,
+                 "train_sequences": 16, "test_sequences": 8},
+        "model": {"width": 8, "layers": 2, "heads": 2, "max_length": 16},
+        "train": {"batch_size": 4, "learning_rate": 0.01, "weight_decay": 0.01,
+                  "checkpoint_steps": [0, 2]},
+        "diagnosis": {"window": 3, "baseline_fit_sequences": 32},
+        "probe": {"train_sequences": 32, "test_sequences": 24},
+    }
+    config_path = tmp_path / "diagnosis.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    paths = {
+        "baseline": tmp_path / "baseline.jsonl",
+        "training": tmp_path / "training.jsonl",
+        "probe": tmp_path / "probe.jsonl",
+    }
+    command = [
+        sys.executable, str(ROOT / "src/mess3_diagnose.py"),
+        "--config", str(config_path), "--mode", "all", "--seeds", "6",
+        "--checkpoint-dir", str(tmp_path / "checkpoints"),
+        "--baseline-results", str(paths["baseline"]),
+        "--training-results", str(paths["training"]),
+        "--probe-results", str(paths["probe"]),
+        "--output-dir", str(tmp_path / "figures"),
+    ]
+    completed = subprocess.run(
+        command, env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    baseline_rows = [json.loads(line) for line in paths["baseline"].read_text().splitlines()]
+    training_rows = [json.loads(line) for line in paths["training"].read_text().splitlines()]
+    probe_rows = [json.loads(line) for line in paths["probe"].read_text().splitlines()]
+    assert len(baseline_rows) == 4
+    assert {(row["condition"], row["step"]) for row in training_rows} == {
+        (condition, step) for condition in ("reused", "fresh") for step in (0, 2)
+    }
+    assert len(probe_rows) == 2 * 2 * 3 * 2
+    assert (tmp_path / "figures/mess3_predictive_baselines.png").exists()
+    assert (tmp_path / "figures/mess3_learning_geometry.png").exists()
+
+    rerun = subprocess.run(
+        command, env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True, text=True, check=False,
+    )
+    assert rerun.returncode == 0, rerun.stderr
+    assert "reused complete diagnostic checkpoints" in rerun.stdout
 
 
 def test_mess3_cli_records_generator_without_fabricated_overlap(tmp_path: Path) -> None:
