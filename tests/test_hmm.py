@@ -10,6 +10,27 @@ from nonergodic_memory.data import (
     make_source_mixture,
     make_two_source_mixture,
 )
+from nonergodic_memory.data.hmm import _sample_categorical_rows
+
+
+class _FixedDraws:
+    def __init__(self, draws: list[float]):
+        self.draws = np.asarray(draws, dtype=np.float64)
+
+    def random(self, shape: tuple[int, int]) -> np.ndarray:
+        assert shape == (len(self.draws), 1)
+        return self.draws[:, None]
+
+
+def test_categorical_rows_use_right_sided_inverse_cdf_at_boundaries() -> None:
+    probabilities = np.array(
+        [[0.0, 0.5, 0.5], [0.25, 0.25, 0.5], [0.0, 0.0, 1.0]]
+    )
+    sampled = _sample_categorical_rows(
+        probabilities, _FixedDraws([0.0, 0.5, np.nextafter(1.0, 0.0)])
+    )
+
+    np.testing.assert_array_equal(sampled, [1, 2, 2])
 
 
 def test_mess3_factorization_matches_published_labeled_operators() -> None:

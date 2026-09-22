@@ -1,3 +1,4 @@
+import copy
 import json
 from pathlib import Path
 
@@ -6,6 +7,7 @@ import torch
 import matplotlib.image as mpimg
 
 from nonergodic_memory.mess3_threshold import (
+    _rate_config,
     analyze_threshold,
     replace_threshold_records,
     run_threshold_probes,
@@ -105,6 +107,27 @@ def test_threshold_grid_rejects_duplicate_and_missing_cells(tiny_threshold_grid)
         validate_threshold_grid(config, training[1:], probes[6:])
 
 
+@pytest.mark.parametrize(
+    ("target", "field", "value", "message"),
+    [
+        ("training", "config_sha256", "wrong", "rate provenance"),
+        ("probes", "probe_sequence_overlap", 1, "overlap"),
+        ("probes", "component_posterior_r2", float("nan"), "non-finite"),
+    ],
+)
+def test_threshold_grid_rejects_invalid_provenance_and_metrics(
+    tiny_threshold_grid, target: str, field: str, value, message: str
+) -> None:
+    _, config, training, probes = tiny_threshold_grid
+    altered_training = copy.deepcopy(training)
+    altered_probes = copy.deepcopy(probes)
+    rows = altered_training if target == "training" else altered_probes
+    rows[0][field] = value
+
+    with pytest.raises(ValueError, match=message):
+        validate_threshold_grid(config, altered_training, altered_probes)
+
+
 def test_threshold_keyed_replacement_preserves_unselected_cells(tmp_path: Path) -> None:
     path = tmp_path / "training.jsonl"
     existing = [
@@ -152,13 +175,16 @@ def _synthetic_threshold_grid() -> tuple[dict, list[dict], list[dict]]:
                 training.append(
                     {
                         "record_type": "threshold_training",
+                        "sampler": "vectorized",
                         "base_config_sha256": base_digest,
-                        "config_sha256": f"rate-{rate}",
+                        "config_sha256": config_digest(_rate_config(config, rate)),
                         "seed": seed,
                         "learning_rate": rate,
                         "step": step,
                         "competence": competence,
                         "kl_exact": 1.0 - competence,
+                        "nll": 1.0,
+                        "uniform_kl": 1.0,
                     }
                 )
                 for site in ("block_1", "block_2", "final_norm"):
@@ -166,15 +192,22 @@ def _synthetic_threshold_grid() -> tuple[dict, list[dict], list[dict]]:
                         probes.append(
                             {
                                 "record_type": "threshold_probe",
+                                "sampler": "vectorized",
                                 "base_config_sha256": base_digest,
-                                "config_sha256": f"rate-{rate}",
+                                "config_sha256": config_digest(_rate_config(config, rate)),
                                 "seed": seed,
                                 "learning_rate": rate,
                                 "step": step,
                                 "site": site,
                                 "control": control,
                                 "component_posterior_r2": geometry if control == "none" else 0.0,
+                                "component_accuracy": 0.5,
+                                "conditional_state_accuracy": 0.5,
+                                "state_posterior_r2": 0.0,
+                                "joint_belief_mse": 0.1,
                                 "joint_belief_r2": 0.5 * geometry if control == "none" else 0.0,
+                                "joint_distance_r2": 0.0,
+                                "probe_sequence_overlap": 0,
                             }
                         )
     return config, training, probes
@@ -219,12 +252,29 @@ def test_threshold_analysis_marks_posthoc_unavailable_with_one_trained_step() ->
     base_digest = config_digest(config)
     for row in [*training, *probes]:
         row["base_config_sha256"] = base_digest
+        row["config_sha256"] = config_digest(
+            _rate_config(config, float(row["learning_rate"]))
+        )
 
     summary = analyze_threshold(config, training, probes)
 
     sensitivity = summary["posthoc_post_initialization_sensitivity"]
     assert sensitivity["status"] == "unavailable"
     assert "two distinct" in sensitivity["reason"]
+
+
+def test_threshold_analysis_preserves_primary_when_posthoc_competence_is_constant() -> None:
+    config, training, probes = _synthetic_threshold_grid()
+    for row in training:
+        if row["step"] > 0:
+            row["competence"] = 0.5
+
+    summary = analyze_threshold(config, training, probes)
+
+    assert "competence_to_step_mse_ratio" in summary
+    sensitivity = summary["posthoc_post_initialization_sensitivity"]
+    assert sensitivity["status"] == "unavailable"
+    assert "varying finite inputs" in sensitivity["reason"]
 
 
 def test_threshold_figures_are_generated_from_complete_raw_grid(tmp_path: Path) -> None:

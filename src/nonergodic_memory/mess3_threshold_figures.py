@@ -42,7 +42,10 @@ def generate_threshold_figures(
     seeds = sorted({int(row["seed"]) for row in training})
     rates = sorted({float(row["learning_rate"]) for row in training}, reverse=True)
     colors = {rates[0]: "#4477AA", rates[1]: "#CC6677"}
-    styles = {seed: ("-", "--", ":", "-.")[index % 4] for index, seed in enumerate(seeds)}
+    line_styles = ("-", "--", ":", "-.", (0, (5, 1, 1, 1, 1, 1)))
+    if len(seeds) > len(line_styles):
+        raise ValueError("threshold figure supports at most five traceable seed styles")
+    styles = {seed: line_styles[index] for index, seed in enumerate(seeds)}
 
     fig, axes = plt.subplots(1, 2, figsize=(10.5, 4.0))
     for rate in rates:
@@ -92,7 +95,11 @@ def generate_threshold_figures(
     rate_handles = [
         Line2D([0], [0], color=colors[rate], label=f"lr={rate:g}") for rate in rates
     ]
-    axes[0].legend(handles=rate_handles, frameon=False)
+    seed_handles = [
+        Line2D([0], [0], color="0.25", linestyle=styles[seed], label=f"seed {seed}")
+        for seed in seeds
+    ]
+    axes[0].legend(handles=[*rate_handles, *seed_handles], frameon=False, ncol=2)
     learning_path = _save(fig, destination / "mess3_threshold_learning.png")
 
     fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.5))

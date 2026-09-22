@@ -9,6 +9,7 @@ import yaml
 from nonergodic_memory.figures import _load_records, generate_figures
 from nonergodic_memory.experiment import load_config, train_one
 from mess3_diagnose import _replace_keyed_jsonl, _training_results_complete
+from mess3_threshold import _training_records_complete
 
 
 ROOT = Path(__file__).parents[1]
@@ -78,6 +79,65 @@ def test_training_result_cache_rejects_conflicting_provenance(tmp_path: Path) ->
     path.write_text("".join(json.dumps(row) + "\n" for row in rows))
 
     assert not _training_results_complete(path, "digest", config, [10], ["fresh"])
+
+
+def test_threshold_training_cache_rejects_wrong_rate_provenance(tmp_path: Path) -> None:
+    config = {
+        "data": {"sampler": "vectorized"},
+        "train": {"checkpoint_steps": [0]},
+        "threshold": {"seeds": [6], "learning_rates": [0.01]},
+    }
+    from nonergodic_memory.experiment import config_digest
+
+    row = {
+        "base_config_sha256": config_digest(config),
+        "config_sha256": "wrong",
+        "record_type": "threshold_training",
+        "sampler": "vectorized",
+        "seed": 6,
+        "learning_rate": 0.01,
+        "step": 0,
+        "competence": 0.0,
+        "kl_exact": 0.1,
+        "nll": 1.0,
+        "uniform_kl": 0.1,
+    }
+    path = tmp_path / "threshold.jsonl"
+    path.write_text(json.dumps(row) + "\n")
+
+    assert not _training_records_complete(path, config, [6], [0.01])
+
+
+def test_threshold_training_cache_accepts_other_configured_rate_rows(tmp_path: Path) -> None:
+    config = {
+        "data": {"sampler": "vectorized"},
+        "train": {"checkpoint_steps": [0]},
+        "threshold": {"seeds": [6], "learning_rates": [0.01, 0.005]},
+    }
+    from nonergodic_memory.experiment import config_digest
+    from nonergodic_memory.mess3_threshold import _rate_config
+
+    rows = []
+    for rate in config["threshold"]["learning_rates"]:
+        rows.append(
+            {
+                "base_config_sha256": config_digest(config),
+                "config_sha256": config_digest(_rate_config(config, rate)),
+                "record_type": "threshold_training",
+                "sampler": "vectorized",
+                "seed": 6,
+                "learning_rate": rate,
+                "step": 0,
+                "competence": 0.0,
+                "kl_exact": 0.1,
+                "nll": 1.0,
+                "uniform_kl": 0.1,
+            }
+        )
+    path = tmp_path / "threshold.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    assert _training_records_complete(path, config, [6], [0.01])
 
 
 def test_entrypoints_have_help() -> None:

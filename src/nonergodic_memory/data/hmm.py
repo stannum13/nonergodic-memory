@@ -16,8 +16,9 @@ IntArray = NDArray[np.int64]
 def _sample_categorical_rows(probabilities: FloatArray, rng: np.random.Generator) -> IntArray:
     """Draw one categorical sample from each row of a probability matrix."""
     cumulative = np.cumsum(probabilities, axis=1)
+    cumulative[:, -1] = 1.0
     draws = rng.random((len(probabilities), 1))
-    return np.sum(draws > cumulative, axis=1, dtype=np.int64)
+    return np.sum(draws >= cumulative, axis=1, dtype=np.int64)
 
 
 def _probabilities(value: ArrayLike, name: str, axis: int = -1) -> FloatArray:

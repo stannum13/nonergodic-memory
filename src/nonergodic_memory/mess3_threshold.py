@@ -110,6 +110,20 @@ def validate_threshold_grid(config: dict, training: list[dict], probes: list[dic
     seeds = {int(seed) for seed in config["threshold"]["seeds"]}
     rates = {float(rate) for rate in config["threshold"]["learning_rates"]}
     steps = {int(step) for step in config["train"]["checkpoint_steps"]}
+    rate_digests = {
+        rate: config_digest(_rate_config(config, rate))
+        for rate in rates
+    }
+    for row in training:
+        if row.get("record_type") != "threshold_training" or row.get("sampler") != "vectorized":
+            raise ValueError("threshold training records have incompatible identity")
+    for row in probes:
+        if row.get("record_type") != "threshold_probe" or row.get("sampler") != "vectorized":
+            raise ValueError("threshold probe records have incompatible identity")
+    for row in [*training, *probes]:
+        rate = float(row["learning_rate"])
+        if row.get("config_sha256") != rate_digests.get(rate):
+            raise ValueError("threshold records have incompatible rate provenance")
     expected_training = {
         (seed, rate, step) for seed in seeds for rate in rates for step in steps
     }
@@ -121,6 +135,12 @@ def validate_threshold_grid(config: dict, training: list[dict], probes: list[dic
         raise ValueError("duplicate threshold training cells")
     if set(training_keys) != expected_training:
         raise ValueError("threshold training grid is incomplete or contains unexpected cells")
+    training_metrics = ("competence", "kl_exact", "nll", "uniform_kl")
+    if any(
+        not all(np.isfinite(float(row.get(metric, float("nan")))) for metric in training_metrics)
+        for row in training
+    ):
+        raise ValueError("threshold training records contain non-finite metrics")
     sites = [
         *(f"block_{depth + 1}" for depth in range(int(config["model"]["layers"]))),
         "final_norm",
@@ -145,6 +165,22 @@ def validate_threshold_grid(config: dict, training: list[dict], probes: list[dic
         raise ValueError("duplicate threshold probe cells")
     if set(probe_keys) != expected_probes:
         raise ValueError("threshold probe grid is incomplete or contains unexpected cells")
+    if any(int(row.get("probe_sequence_overlap", -1)) != 0 for row in probes):
+        raise ValueError("threshold probe records contain sequence overlap")
+    probe_metrics = (
+        "component_accuracy",
+        "component_posterior_r2",
+        "conditional_state_accuracy",
+        "state_posterior_r2",
+        "joint_belief_mse",
+        "joint_belief_r2",
+        "joint_distance_r2",
+    )
+    if any(
+        not all(np.isfinite(float(row.get(metric, float("nan")))) for metric in probe_metrics)
+        for row in probes
+    ):
+        raise ValueError("threshold probe records contain non-finite metrics")
 
 
 def _quadratic_predictions(
@@ -244,11 +280,18 @@ def analyze_threshold(config: dict, training: list[dict], probes: list[dict]) ->
             "reason": "requires at least two distinct post-initialization steps",
         }
     else:
-        post_initialization = {
-            "status": "post_hoc_not_registered",
-            "selection": "step > 0",
-            **_loso_comparison(post_initialization_rows),
-        }
+        try:
+            post_initialization = {
+                "status": "post_hoc_not_registered",
+                "selection": "step > 0",
+                **_loso_comparison(post_initialization_rows),
+            }
+        except ValueError as error:
+            post_initialization = {
+                "status": "unavailable",
+                "selection": "step > 0",
+                "reason": str(error),
+            }
     shuffled = [
         abs(float(row["component_posterior_r2"]))
         for row in probes

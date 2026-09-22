@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 from collections import Counter
 from pathlib import Path
 
@@ -78,7 +79,24 @@ def _training_records_complete(
         return False
     try:
         rows = [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-        if any(row.get("base_config_sha256") != config_digest(config) for row in rows):
+        base_digest = config_digest(config)
+        expected_rate_digests = {
+            float(rate): config_digest(_rate_config(config, float(rate)))
+            for rate in config["threshold"]["learning_rates"]
+        }
+        required_metrics = ("competence", "kl_exact", "nll", "uniform_kl")
+        if any(
+            row.get("base_config_sha256") != base_digest
+            or row.get("record_type") != "threshold_training"
+            or row.get("sampler") != "vectorized"
+            or row.get("config_sha256")
+            != expected_rate_digests.get(float(row.get("learning_rate", float("nan"))))
+            or not all(
+                math.isfinite(float(row.get(metric, float("nan"))))
+                for metric in required_metrics
+            )
+            for row in rows
+        ):
             return False
         counts = Counter(
             (int(row["seed"]), float(row["learning_rate"]), int(row["step"]))
