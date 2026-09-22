@@ -82,7 +82,14 @@ def test_training_result_cache_rejects_conflicting_provenance(tmp_path: Path) ->
 
 def test_entrypoints_have_help() -> None:
     environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
-    for script in ("train.py", "probe.py", "intervene.py", "context_restart.py", "mess3_diagnose.py"):
+    for script in (
+        "train.py",
+        "probe.py",
+        "intervene.py",
+        "context_restart.py",
+        "mess3_diagnose.py",
+        "mess3_threshold.py",
+    ):
         completed = subprocess.run(
             [sys.executable, str(ROOT / "src" / script), "--help"],
             env=environment,
@@ -92,6 +99,70 @@ def test_entrypoints_have_help() -> None:
         )
         assert completed.returncode == 0
         assert "--config" in completed.stdout
+
+
+def test_mess3_threshold_cli_writes_and_preserves_tiny_grid(tmp_path: Path) -> None:
+    config = {
+        "data": {
+            "generator": "mess3",
+            "sampler": "vectorized",
+            "sequence_length": 8,
+            "train_sequences": 16,
+            "test_sequences": 8,
+        },
+        "model": {"width": 8, "layers": 2, "heads": 2, "max_length": 16},
+        "train": {
+            "batch_size": 4,
+            "learning_rate": 0.01,
+            "weight_decay": 0.01,
+            "checkpoint_steps": [0, 2],
+        },
+        "diagnosis": {"window": 3},
+        "probe": {"train_sequences": 24, "test_sequences": 16},
+        "threshold": {"seeds": [6, 7], "learning_rates": [0.01, 0.005]},
+    }
+    config_path = tmp_path / "threshold.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    training_path = tmp_path / "training.jsonl"
+    probe_path = tmp_path / "probes.jsonl"
+    command = [
+        sys.executable,
+        str(ROOT / "src/mess3_threshold.py"),
+        "--config",
+        str(config_path),
+        "--mode",
+        "all",
+        "--checkpoint-dir",
+        str(tmp_path / "checkpoints"),
+        "--training-results",
+        str(training_path),
+        "--probe-results",
+        str(probe_path),
+    ]
+    environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+
+    completed = subprocess.run(
+        command, env=environment, capture_output=True, text=True, check=False
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    training = [json.loads(line) for line in training_path.read_text().splitlines()]
+    probes = [json.loads(line) for line in probe_path.read_text().splitlines()]
+    assert len(training) == 2 * 2 * 2
+    assert len(probes) == 2 * 2 * 2 * 3 * 2
+    partial = [
+        *command,
+        "--seeds",
+        "6",
+        "--learning-rates",
+        "0.01",
+    ]
+    rerun = subprocess.run(
+        partial, env=environment, capture_output=True, text=True, check=False
+    )
+    assert rerun.returncode == 0, rerun.stderr
+    assert len(training_path.read_text().splitlines()) == 2 * 2 * 2
+    assert len(probe_path.read_text().splitlines()) == 2 * 2 * 2 * 3 * 2
 
 
 def test_mess3_diagnosis_cli_writes_complete_tiny_grid(tmp_path: Path) -> None:
