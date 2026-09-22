@@ -2,7 +2,7 @@
 
 ## Hypothesis
 
-For the exact published two-Mess3 mixture, next-token training should improve linear recovery of the six weighted joint-belief coordinates over same-seed untrained controls. The earlier two-state experiments separately tested component/conditional-state readouts, selective erasure, and remote-history use.
+For the exact published two-Mess3 mixture, the failed small-model geometry result may reflect limited predictive generalization from repeatedly training on 2,048 fixed sequences. At matched initialization, architecture, batch size, optimizer, sequence length, and update count, sampling fresh sequences per update should reduce held-out exact-predictive KL relative to reusing a fixed sequence pool.
 
 ## Last experiment
 
@@ -20,8 +20,14 @@ The exact Mess3 source process is reproduced, but this smaller CPU training prot
 
 ## Next smallest experiment
 
-No further scientific experiment is registered. Any attempt to test a closer architecture or larger training budget should begin with a new preregistration and preserve this negative result. The present result and explicit fidelity differences are recorded in `report.md`.
+Run the registered exploratory Mess3 training-diversity diagnosis below. Interpret predictive competence against uniform, last-token, eight-token Bayes, and full-history Bayes before interpreting layerwise weighted-belief recovery.
 
 ## Registered Mess3 fidelity prediction
 
 For the exact published two-Mess3 source, trained Transformer joint-belief R² will exceed its same-seed untrained control in all three seeds. Pairwise-distance R² is secondary. The experiment is a direct data/process reproduction but not an exact compute reproduction: width 32, two layers, absolute positions, LayerNorm, and CPU training differ from the published width-128 four-layer TransformerLens model with rotary positions, RMSNorm, gated GELU, and 45,000 optimization steps.
+
+## Registered exploratory training-diversity prediction
+
+Registered before creating any diagnosis checkpoint, JSONL record, or figure. Configuration digest `aa2de784730aa352` compares `reused` and `fresh` sequence conditions for exploratory seeds 10 and 11 at steps 0, 768, and 3,072. Both conditions use the same initialized width-32 two-layer Transformer, sequence length 64, batch size 64, AdamW settings, and supervised tokens per update. The reused condition traverses a deterministic fixed pool of 2,048 sequences; the fresh condition samples a new batch of 64 sequences at every update.
+
+The primary prediction is: at step 3,072, fresh-data training has lower held-out exact-predictive KL than reused-data training in both seeds 10 and 11. Layerwise component-posterior, conditional-state, and six-coordinate weighted joint-belief recovery are secondary outcomes with no directional success criterion. Seeds 10 and 11 are exploratory and cannot be reused for later confirmation.
