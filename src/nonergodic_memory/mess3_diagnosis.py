@@ -27,6 +27,22 @@ from .models.sequence import build_model
 FloatArray = NDArray[np.float64]
 
 
+def sample_from_config(
+    mixture: HMMMixture,
+    config: dict,
+    n_sequences: int,
+    length: int,
+    seed: int,
+) -> SequenceBatch:
+    """Sample with an explicit backend while preserving the legacy default."""
+    sampler = config["data"].get("sampler", "reference")
+    if sampler == "reference":
+        return mixture.sample(n_sequences, length, seed)
+    if sampler == "vectorized":
+        return mixture.sample_vectorized(n_sequences, length, seed)
+    raise ValueError(f"unknown data sampler: {sampler}")
+
+
 def _probability_rows(values: FloatArray, name: str) -> FloatArray:
     array = np.asarray(values, dtype=np.float64)
     if array.ndim != 2 or not np.all(np.isfinite(array)) or np.any(array < 0):
@@ -176,8 +192,10 @@ def train_diagnostic(
         raise ValueError("reused train_sequences must be divisible by batch_size")
     checkpoint_steps = _checkpoint_steps(config)
     max_step = checkpoint_steps[-1]
-    fixed_pool = mixture.sample(train_sequences, length, seed + 101)
-    test_batch = mixture.sample(int(data["test_sequences"]), length, seed + 202)
+    fixed_pool = sample_from_config(mixture, config, train_sequences, length, seed + 101)
+    test_batch = sample_from_config(
+        mixture, config, int(data["test_sequences"]), length, seed + 202
+    )
     model = build_model("transformer", mixture.vocab_size, config["model"])
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -228,7 +246,13 @@ def train_diagnostic(
     save_record(0)
     for step in range(1, max_step + 1):
         if condition == "fresh":
-            batch = mixture.sample(batch_size, length, seed * 1_000_000 + 10_000 + step)
+            batch = sample_from_config(
+                mixture,
+                config,
+                batch_size,
+                length,
+                seed * 1_000_000 + 10_000 + step,
+            )
             inputs, targets = tensor_sequences(batch)
         else:
             if not pending_batches:
@@ -266,8 +290,12 @@ def evaluate_checkpoint_geometry(
     mixture = mixture_from_config(config)
     length = int(config["data"]["sequence_length"])
     probe = config["probe"]
-    train_batch = mixture.sample(int(probe["train_sequences"]), length, seed + 404)
-    test_batch = mixture.sample(int(probe["test_sequences"]), length, seed + 505)
+    train_batch = sample_from_config(
+        mixture, config, int(probe["train_sequences"]), length, seed + 404
+    )
+    test_batch = sample_from_config(
+        mixture, config, int(probe["test_sequences"]), length, seed + 505
+    )
     n_layers = int(config["model"]["layers"])
     records: list[dict] = []
     for depth in range(n_layers + 1):

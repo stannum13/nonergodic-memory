@@ -9,6 +9,7 @@ import yaml
 from nonergodic_memory.figures import _load_records, generate_figures
 from nonergodic_memory.experiment import load_config, train_one
 from mess3_diagnose import _replace_keyed_jsonl, _training_results_complete
+from mess3_threshold import _training_records_complete
 
 
 ROOT = Path(__file__).parents[1]
@@ -80,9 +81,75 @@ def test_training_result_cache_rejects_conflicting_provenance(tmp_path: Path) ->
     assert not _training_results_complete(path, "digest", config, [10], ["fresh"])
 
 
+def test_threshold_training_cache_rejects_wrong_rate_provenance(tmp_path: Path) -> None:
+    config = {
+        "data": {"sampler": "vectorized"},
+        "train": {"checkpoint_steps": [0]},
+        "threshold": {"seeds": [6], "learning_rates": [0.01]},
+    }
+    from nonergodic_memory.experiment import config_digest
+
+    row = {
+        "base_config_sha256": config_digest(config),
+        "config_sha256": "wrong",
+        "record_type": "threshold_training",
+        "sampler": "vectorized",
+        "seed": 6,
+        "learning_rate": 0.01,
+        "step": 0,
+        "competence": 0.0,
+        "kl_exact": 0.1,
+        "nll": 1.0,
+        "uniform_kl": 0.1,
+    }
+    path = tmp_path / "threshold.jsonl"
+    path.write_text(json.dumps(row) + "\n")
+
+    assert not _training_records_complete(path, config, [6], [0.01])
+
+
+def test_threshold_training_cache_accepts_other_configured_rate_rows(tmp_path: Path) -> None:
+    config = {
+        "data": {"sampler": "vectorized"},
+        "train": {"checkpoint_steps": [0]},
+        "threshold": {"seeds": [6], "learning_rates": [0.01, 0.005]},
+    }
+    from nonergodic_memory.experiment import config_digest
+    from nonergodic_memory.mess3_threshold import _rate_config
+
+    rows = []
+    for rate in config["threshold"]["learning_rates"]:
+        rows.append(
+            {
+                "base_config_sha256": config_digest(config),
+                "config_sha256": config_digest(_rate_config(config, rate)),
+                "record_type": "threshold_training",
+                "sampler": "vectorized",
+                "seed": 6,
+                "learning_rate": rate,
+                "step": 0,
+                "competence": 0.0,
+                "kl_exact": 0.1,
+                "nll": 1.0,
+                "uniform_kl": 0.1,
+            }
+        )
+    path = tmp_path / "threshold.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    assert _training_records_complete(path, config, [6], [0.01])
+
+
 def test_entrypoints_have_help() -> None:
     environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
-    for script in ("train.py", "probe.py", "intervene.py", "context_restart.py", "mess3_diagnose.py"):
+    for script in (
+        "train.py",
+        "probe.py",
+        "intervene.py",
+        "context_restart.py",
+        "mess3_diagnose.py",
+        "mess3_threshold.py",
+    ):
         completed = subprocess.run(
             [sys.executable, str(ROOT / "src" / script), "--help"],
             env=environment,
@@ -92,6 +159,92 @@ def test_entrypoints_have_help() -> None:
         )
         assert completed.returncode == 0
         assert "--config" in completed.stdout
+
+
+def test_mess3_threshold_cli_writes_and_preserves_tiny_grid(tmp_path: Path) -> None:
+    config = {
+        "data": {
+            "generator": "mess3",
+            "sampler": "vectorized",
+            "sequence_length": 8,
+            "train_sequences": 16,
+            "test_sequences": 8,
+        },
+        "model": {"width": 8, "layers": 2, "heads": 2, "max_length": 16},
+        "train": {
+            "batch_size": 4,
+            "learning_rate": 0.01,
+            "weight_decay": 0.01,
+            "checkpoint_steps": [0, 2],
+        },
+        "diagnosis": {"window": 3},
+        "probe": {"train_sequences": 24, "test_sequences": 16},
+        "threshold": {"seeds": [6, 7], "learning_rates": [0.01, 0.005]},
+    }
+    config_path = tmp_path / "threshold.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    training_path = tmp_path / "training.jsonl"
+    probe_path = tmp_path / "probes.jsonl"
+    summary_path = tmp_path / "summary.jsonl"
+    figure_dir = tmp_path / "figures"
+    command = [
+        sys.executable,
+        str(ROOT / "src/mess3_threshold.py"),
+        "--config",
+        str(config_path),
+        "--mode",
+        "all",
+        "--checkpoint-dir",
+        str(tmp_path / "checkpoints"),
+        "--training-results",
+        str(training_path),
+        "--probe-results",
+        str(probe_path),
+        "--summary-results",
+        str(summary_path),
+        "--output-dir",
+        str(figure_dir),
+    ]
+    environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+
+    pilot = command.copy()
+    pilot[pilot.index("all")] = "train"
+    pilot.extend(["--seeds", "6", "--learning-rates", "0.01"])
+    pilot_run = subprocess.run(
+        pilot, env=environment, capture_output=True, text=True, check=False
+    )
+    assert pilot_run.returncode == 0, pilot_run.stderr
+    pilot_checkpoint = tmp_path / "checkpoints/lr_0p01/transformer_seed6_fresh_step2.pt"
+    pilot_mtime = pilot_checkpoint.stat().st_mtime_ns
+
+    completed = subprocess.run(
+        command, env=environment, capture_output=True, text=True, check=False
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert pilot_checkpoint.stat().st_mtime_ns == pilot_mtime
+    training = [json.loads(line) for line in training_path.read_text().splitlines()]
+    probes = [json.loads(line) for line in probe_path.read_text().splitlines()]
+    assert len(training) == 2 * 2 * 2
+    assert len(probes) == 2 * 2 * 2 * 3 * 2
+    summary = [json.loads(line) for line in summary_path.read_text().splitlines()]
+    assert len(summary) == 1
+    assert summary[0]["record_type"] == "threshold_summary"
+    assert (figure_dir / "mess3_threshold_learning.png").exists()
+    assert (figure_dir / "mess3_threshold_alignment.png").exists()
+    partial = [
+        *command,
+        "--seeds",
+        "6",
+        "--learning-rates",
+        "0.01",
+    ]
+    rerun = subprocess.run(
+        partial, env=environment, capture_output=True, text=True, check=False
+    )
+    assert rerun.returncode == 0, rerun.stderr
+    assert len(training_path.read_text().splitlines()) == 2 * 2 * 2
+    assert len(probe_path.read_text().splitlines()) == 2 * 2 * 2 * 3 * 2
 
 
 def test_mess3_diagnosis_cli_writes_complete_tiny_grid(tmp_path: Path) -> None:

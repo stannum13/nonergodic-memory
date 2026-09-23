@@ -1,4 +1,4 @@
-.PHONY: smoke train reproduce reproduce-mess3 diagnose-mess3 extension figures sweep-overlap sweep-length sweep-components sweep-width sweep-depth sweep-interaction sweep-context-restart sweep-position-restart sweep-short-context sweep-budget-context sweep-gru-budget-context test clean-results
+.PHONY: smoke train reproduce reproduce-mess3 diagnose-mess3 threshold-mess3 extension figures sweep-overlap sweep-length sweep-components sweep-width sweep-depth sweep-interaction sweep-context-restart sweep-position-restart sweep-short-context sweep-budget-context sweep-gru-budget-context test clean-results
 
 PYTHON ?= python3
 export PYTHONPATH := src:$(PYTHONPATH)
@@ -17,6 +17,9 @@ reproduce-mess3:
 
 diagnose-mess3:
 	bash scripts/diagnose_mess3_training.sh
+
+threshold-mess3:
+	bash scripts/mess3_threshold.sh
 
 extension:
 	bash scripts/extension.sh

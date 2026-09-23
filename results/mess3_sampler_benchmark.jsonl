@@ -1,0 +1,1 @@
+{"length": 64, "numpy_version": "2.4.1", "python_version": "3.14.2", "record_type": "mess3_sampler_benchmark", "reference_median_seconds": 0.06262306263670325, "repeats": 20, "samplers": ["reference", "vectorized"], "sequences": 64, "speedup": 23.883703122959012, "torch_version": "2.11.0", "vectorized_median_seconds": 0.0026219997089356184}

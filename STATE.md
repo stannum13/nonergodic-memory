@@ -2,27 +2,35 @@
 
 ## Hypothesis
 
-For the exact published two-Mess3 mixture, the failed small-model geometry result may reflect limited predictive generalization from repeatedly training on 2,048 fixed sequences. At matched initialization, architecture, batch size, optimizer, sequence length, and update count, sampling fresh sequences per update should reduce held-out exact-predictive KL relative to reusing a fixed sequence pool.
+For the exact published two-Mess3 mixture, component geometry emerges when the model becomes predictively competent, rather than at a fixed optimizer step. Across paired fresh-data learning curves, predictive competence should therefore explain held-out block-2 component-posterior R² better than update count does.
 
 ## Last experiment
 
-Exploratory Mess3 training-diversity diagnosis, registered at `7cac6cb` before any diagnosis output. For seeds 10/11, compared a fixed pool of 2,048 sequences with fresh batches at every update, holding initialization, architecture, batch size, sequence length, optimizer, and checkpoints fixed. Exact baselines quantify the available predictive signal; independent probes measure all three activation sites at steps 0/768/3,072.
+Registered Mess3 geometry-threshold test, committed at `2bd1072` before any threshold checkpoint, result, or figure. Confirmation seeds 20–24 were trained on paired fresh batches at learning rates 0.003/0.0015 and probed at seven checkpoints from initialization through 3,072 updates. The primary leave-one-seed-out comparison predicts block-2 component-posterior R² from either competence or `log1p(step)`.
 
 ## Result
 
-- The registered primary prediction is supported in both exploratory seeds. At step 3,072, fresh/reused exact-predictive KL is 0.001649/0.203223 for seed 10 and 0.001301/0.179832 for seed 11.
-- Uniform predictive KL is 0.008175; exact eight-token Bayes is 0.003313. Fresh training recovers 79.8%/84.4% of the uniform-to-full-Bayes gap, while reused training becomes much worse than uniform.
-- At the original 768-update budget, fresh training improves predictive KL but joint-belief R² is only 0.378–0.387 and component-posterior R² remains near zero.
-- At step 3,072, fresh block-2 joint-belief R² is 0.726/0.616 versus reused 0.251/0.250. Fresh final-norm R² is 0.677/0.628. Shuffled-target joint R² stays near zero.
-- The uncached CPU command reported 3:02:13 wall time, almost consuming the four-hour exploratory cap.
+- The registered primary prediction fails in every held-out seed. Competence-only LOSO MSE is 0.013170 versus 0.005537 for log-step, giving a ratio of 2.378 rather than the predicted `< 0.80`.
+- Shuffled-label component-posterior R² remains within [−0.01074, 0.01069], satisfying the registered ±0.02 interpretability control. Probe sequence overlap is zero.
+- At learning rate 0.003, mean block-2 component R² grows from 0.005 at step 768 to 0.363 at step 3,072; at 0.0015 it grows from −0.002 to 0.238. Predictive competence at the final checkpoint is 0.850/0.814.
+- A post-hoc sensitivity analysis excluding initialization reverses the comparison in every seed: competence/log-step LOSO MSE ratio is 0.477. This was not registered and does not rescue the primary result.
+- The complete grid contains 70 training and 420 probe records. It completed in 30:57 wall time after reusing one 136.65-second pilot.
 
 ## Interpretation
 
-Fixed-pool sequence reuse explains a large part of the initial predictive-generalization failure: reused training generalizes poorly and eventually damages prediction. It does not by itself explain the geometry failure. At 768 updates, fresh data improves prediction without recovering component identity; the substantial deeper-layer weighted-belief representation appears only with fresh data and a fourfold larger 3,072-update budget. The result remains exploratory with two seeds and does not match the paper's architecture, training budget, or reported R². It narrows the failure mechanism without establishing an exact numerical reproduction or a diversity-only causal explanation.
+The proposed global competence threshold is falsified as specified. Across initialization and training, optimizer step generalizes better to held-out seeds than predictive competence. However, initialization occupies an extreme competence range (mean about −11.8), while trained checkpoints lie near 0–0.85; one quadratic across both regimes is scale-sensitive. The post-hoc reversal after removing initialization suggests a two-regime account: prediction becomes nontrivial first, then component geometry grows with competence during training. That account is a new hypothesis, not a confirmed reinterpretation. The experiment remains far below the target study's architecture and compute budget.
 
 ## Next smallest experiment
 
-Do not launch the planned five-seed confirmation with the current sampler: the exploratory run nearly exhausted its compute cap. First vectorize or batch the exact sampler, verify its distribution against the reference implementation, and benchmark one fresh-data run. Then preregister new confirmatory seeds if the projected cost is acceptable.
+Do not weaken the failed global criterion. The next smallest falsification is a new-seed preregistered two-regime analysis: treat initialization as a distinct categorical regime and compare competence versus step only among post-initialization checkpoints, using a model family fixed before examining new seeds. No additional training should begin until that specification is committed.
+
+## Registered Mess3 geometry-threshold prediction
+
+Registered before creating any `checkpoints/mess3_threshold/`, `results/mess3_threshold_*.jsonl`, or `figures/mess3_threshold_*.png` artifact. Configuration digest `d2423ea9f3b44075` uses confirmation seeds 20–24, learning rates 0.003 and 0.0015, fresh vectorized samples, and checkpoints 0/384/768/1,152/1,536/2,304/3,072. Same-seed rate conditions share initialization, the seed-indexed fresh batch at every step, held-out evaluation data, probe-fit data, and probe-test data.
+
+The primary prediction is: a quadratic competence-only regression will have at least 20% lower leave-one-seed-out MSE for normal-control block-2 component-posterior R² than a quadratic `log1p(step)`-only regression. Equivalently, `MSE_competence / MSE_step < 0.80`. Each fold holds out both learning-rate trajectories for one seed. Shuffled-label component-posterior R² must remain within ±0.02 in every cell for the primary result to be interpretable. Onset locations, joint-belief R², pairwise-distance R², and other activation sites are secondary with no directional success criterion.
+
+Seeds 20–24 and the 20% criterion are confirmatory and cannot be replaced or weakened after inspection. A positive raw correlation, a ratio between 0.80 and 1.00, or an improvement confined to a subset of folds does not satisfy the registered prediction.
 
 ## Registered Mess3 fidelity prediction
 
