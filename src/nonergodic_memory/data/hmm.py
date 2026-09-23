@@ -13,6 +13,14 @@ FloatArray = NDArray[np.float64]
 IntArray = NDArray[np.int64]
 
 
+def _sample_categorical_rows(probabilities: FloatArray, rng: np.random.Generator) -> IntArray:
+    """Draw one categorical sample from each row of a probability matrix."""
+    cumulative = np.cumsum(probabilities, axis=1)
+    cumulative[:, -1] = 1.0
+    draws = rng.random((len(probabilities), 1))
+    return np.sum(draws >= cumulative, axis=1, dtype=np.int64)
+
+
 def _probabilities(value: ArrayLike, name: str, axis: int = -1) -> FloatArray:
     array = np.asarray(value, dtype=np.float64)
     if np.any(array < 0) or not np.all(np.isfinite(array)):
@@ -110,6 +118,38 @@ class HMMMixture:
                 )
         return SequenceBatch(tokens=tokens, components=component_ids, states=states)
 
+    def sample_vectorized(self, n_sequences: int, length: int, seed: int) -> SequenceBatch:
+        """Sample exactly from the mixture while batching sequences by component."""
+        if n_sequences < 1 or length < 2:
+            raise ValueError("n_sequences must be positive and length must be at least two")
+        rng = np.random.default_rng(seed)
+        component_ids = rng.choice(
+            len(self.components), size=n_sequences, p=self.weights
+        ).astype(np.int64)
+        states = np.empty((n_sequences, length), dtype=np.int64)
+        tokens = np.empty((n_sequences, length), dtype=np.int64)
+        component_indices = [
+            np.flatnonzero(component_ids == component_id)
+            for component_id in range(len(self.components))
+        ]
+        for component_id, indices in enumerate(component_indices):
+            hmm = self.components[component_id]
+            initial_rows = np.broadcast_to(hmm.initial, (len(indices), hmm.n_states))
+            states[indices, 0] = _sample_categorical_rows(initial_rows, rng)
+            tokens[indices, 0] = _sample_categorical_rows(
+                hmm.emission[states[indices, 0]], rng
+            )
+        for position in range(1, length):
+            for component_id, indices in enumerate(component_indices):
+                hmm = self.components[component_id]
+                states[indices, position] = _sample_categorical_rows(
+                    hmm.transition[states[indices, position - 1]], rng
+                )
+                tokens[indices, position] = _sample_categorical_rows(
+                    hmm.emission[states[indices, position]], rng
+                )
+        return SequenceBatch(tokens=tokens, components=component_ids, states=states)
+
     def filter(self, tokens: ArrayLike) -> FilterResult:
         observations = np.asarray(tokens, dtype=np.int64)
         if observations.ndim != 2:
@@ -159,6 +199,27 @@ class HMMMixture:
                     )
 
         return FilterResult(component_posterior, state_posterior, predictive)
+
+
+def make_mess3(alpha: float, x: float) -> HMM:
+    if not 0.0 <= alpha <= 1.0:
+        raise ValueError("alpha must lie in [0, 1]")
+    if not 0.0 <= x <= 0.5:
+        raise ValueError("x must lie in [0, 0.5]")
+    beta = (1.0 - alpha) / 2.0
+    y = 1.0 - 2.0 * x
+    transition = np.full((3, 3), x)
+    np.fill_diagonal(transition, y)
+    emission = np.full((3, 3), beta)
+    np.fill_diagonal(emission, alpha)
+    return HMM(transition, emission, np.full(3, 1.0 / 3.0))
+
+
+def make_mess3_mixture() -> HMMMixture:
+    return HMMMixture(
+        [make_mess3(alpha=0.60, x=0.15), make_mess3(alpha=0.66, x=0.50)],
+        [0.5, 0.5],
+    )
 
 
 def make_source_mixture(n_components: int = 2, overlap: float = 0.35) -> HMMMixture:

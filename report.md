@@ -6,9 +6,126 @@ This artifact tests whether small GRU and decoder-only Transformer predictors li
 
 The causal extension uses separate direction-fit, evaluator-fit, and test sequences. Learned erasures were selective on average, but effects varied sharply by architecture and seed and also occurred in untrained networks. Next-token loss changed little except for Transformer component erasure. The extension therefore falsifies the strong claim that training consistently creates stable, selectively necessary final-layer subspaces in this small setting.
 
+A separately registered direct Mess3 experiment now matches the paper's source process and six weighted joint-belief targets. Its first fixed-pool CPU run fails the registered trained-over-untrained prediction in all three seeds: joint R² is 0.3212 ± 0.0047 trained versus 0.3362 ± 0.0058 untrained. That negative result is retained unchanged. A subsequent registered exploratory diagnosis compares fresh and reused sequences at matched checkpoints. At the original 768-update budget, fresh data improves held-out prediction but leaves component-posterior R² near zero and joint-belief R² near 0.38. At 3,072 updates, fresh training supports the registered predictive prediction in both seeds, recovers 80–84% of the uniform-to-Bayes gap, and reaches deeper-layer joint-belief R² of 0.62–0.73; fixed-pool training overfits sharply. Thus the geometry recovery requires fresh data together with a fourfold larger training budget in this design. The two-seed exploratory status and remaining architecture differences prevent claiming an exact reproduction of the published result.
+
+A five-seed, two-learning-rate confirmation then tests whether predictive competence aligns component geometry better than optimizer step. The registered claim fails in all held-out seeds: competence-only leave-one-seed-out MSE is 0.013170 versus 0.005537 for log-step, a ratio of 2.378 rather than the predicted value below 0.80. Shuffled controls pass. A post-hoc analysis excluding initialization reverses the ratio to 0.477, revealing sensitivity to an extreme initialization regime but not rescuing the preregistered result.
+
 ## Relation to the target result
 
-Ray, Riechers, and Shai derive a telescoping belief geometry for nonergodic compositions and report that a linear map from Transformer residual activations recovers weighted beliefs for two Mess3 sources with held-out R² near 0.985, versus about 0.45 for an untrained network. Their model and process are substantially larger than those used here. This is a conceptual reproduction: conventional two-state HMMs replace Mess3, and final activations of width-32 models replace a width-128, four-layer Transformer. Detailed correspondences and non-equivalences are recorded in `paper_notes.md`.
+Ray, Riechers, and Shai derive a telescoping belief geometry for nonergodic compositions and report that a linear map from Transformer residual activations recovers weighted beliefs for two Mess3 sources with held-out R² near 0.985, versus about 0.45 for an untrained network. The earlier experiments below are a conceptual reproduction using conventional two-state HMMs and smaller models. The new direct Mess3 experiment matches the source process through an exact transition/emission factorization, while retaining a smaller network and different training protocol. Detailed correspondences and non-equivalences are recorded in `paper_notes.md` and the fidelity table below.
+
+## Direct Mess3 fidelity reproduction
+
+The prediction was committed in `STATE.md` at `723b96e732b038d6959a694825a2c88b34037c17` before creating any Mess3 checkpoint, result JSONL, or figure: trained joint-belief R² would exceed the same-seed untrained control in all three seeds; pairwise-distance R² was secondary. `make reproduce-mess3` then ran the unchanged `configs/mess3_cpu.yaml` configuration on CPU, seeds 0/1/2, with configuration digest `843e572482fd5fcf`. The prediction failed in every seed.
+
+### Fidelity boundary
+
+The published reference values and specifications below come from the [Mess3 and training appendices](https://simplex.pub/nonergodic-geometry/). Local values are fixed by the checked-in generator, model, training code, and configuration. Hardware and several implementation details are not specified by the article; they are not assumed to match.
+
+| aspect | published experiment | this registered run |
+|---|---|---|
+| Source process | Two three-state Mess3s; `(x,alpha)` = `(0.15,0.60)` / `(0.50,0.66)`; equal weights | Exact same labeled matrices, alphabet, stationary prior, and fixed-component mixture via `T^(k) = A diag(E[:,k])`; see `paper_notes.md` |
+| Belief target | Six weighted joint coordinates | Same `q_t(c,s) = w_t(c) eta_t(c,s)`; components' masses sum to one |
+| Sequence protocol | BOS + 127 emissions; vocabulary 4; context 128 | 64 emissions, no BOS; vocabulary 3; 63 input/target positions; position-table capacity 128 |
+| Implementation / width / depth | TransformerLens; 128; four blocks | Native PyTorch causal Transformer; 32; two blocks |
+| Attention | Four heads, dimension 32 | Four heads, dimension 8 |
+| MLP | Width 512, gated GELU | Width 128, ordinary GELU, no gating |
+| Positions / normalization | Rotary / RMSNorm | Learned absolute embeddings / pre-LayerNorm plus final LayerNorm |
+| Initialization | Gaussian, standard deviation 0.02 | Native PyTorch module defaults; encoder blocks initially cloned from one layer |
+| Optimizer | AdamW; learning rate .001; weight decay 0 | AdamW; learning rate .003; default weight decay .01; both use betas (.9,.999) |
+| Batch / optimization steps | 512 sequences / 45,000 steps | 64 sequences / 768 steps (24 epochs × 32 batches) |
+| Training exposure | 2,926,080,000 next-token targets at that checkpoint | 3,096,576 targets; 2,048 fixed sampled sequences reused across epochs |
+| Readout location | Block-three residual stream for main figures; final block also reported | Final normalized representation after block two |
+| Readout protocol | Held-out linear readout; exact sample count/regularization not specified in article | StandardScaler + ridge (`alpha=1`); fit on 1,024 new sequences, test on 512 new sequences; all 63 positions |
+| Compute / controls | Hardware unspecified; untrained comparison | Deterministic CPU; seeds 0/1/2; same-seed initial networks and shuffled-target probes in both conditions |
+
+This is a direct data/process reproduction with different sequence packaging, architecture, analysis details, and compute. It is not an exact reproduction of the published training run or its numerical R². The source equivalence uses the stationary uniform state prior: `pi A = pi`, so emitting at the initial state gives the same first-token joint distribution as taking a transition before emission. Tests independently assert the published labeled operators for both Mess3 components and compare short-word filter states directly with normalized products of those operators. A separate brute-force enumeration test covers only a generic two-state mixture.
+
+### Registered outcome and secondary metrics
+
+Each entry uses held-out sequences disjoint from the probe fit. Joint R² is the mean of the six coordinate R² scores; joint MSE averages squared error over observations and coordinates. Distance R² compares Euclidean distances in the exact and reconstructed six-coordinate spaces for 20,000 deterministically sampled distinct unordered pairs per seed. The same pair indices are used across trained/untrained and shuffled conditions. Reconstructed coordinates are not clipped or renormalized.
+
+| seed | trained joint R² | untrained joint R² | trained − untrained | registered prediction | trained / untrained distance R² | trained / untrained joint MSE |
+|---|---:|---:|---:|---|---:|---:|
+| 0 | 0.327137 | 0.344238 | −0.017101 | fail | −1.246569 / −1.324774 | 0.020582 / 0.020057 |
+| 1 | 0.320975 | 0.333918 | −0.012943 | fail | −1.350873 / −1.360462 | 0.020768 / 0.020351 |
+| 2 | 0.315538 | 0.330558 | −0.015020 | fail | −1.349559 / −1.390801 | 0.021389 / 0.020907 |
+
+Across seeds (mean ± population SD), trained joint R² is 0.321217 ± 0.004738 versus 0.336238 ± 0.005821 untrained. Joint MSE is 0.020913 ± 0.000345 versus 0.020439 ± 0.000353. Secondary distance R² improves slightly in each seed, but is −1.315667 ± 0.048863 trained and −1.358679 ± 0.026985 untrained: both perform worse than predicting a constant mean exact pairwise distance. This secondary improvement does not rescue the failed primary prediction or establish accurate geometry recovery. All six shuffled-target joint R² values are near zero (−0.003910 to −0.000913).
+
+The separate conditional-state readout scores 0.699709 ± 0.007890 trained versus 0.748687 ± 0.010432 untrained. These targets normalize each component's three-state block independently and sum to two, unlike the weighted joint target. Component-posterior R² is near zero (−0.002657 trained and −0.003493 untrained means). Thus relatively recoverable conditional-state information is not evidence that the network tracks the component weights required for telescoping geometry. This pattern is consistent with accessible token features but does not identify a unique failure mechanism.
+
+Held-out training-evaluation NLL is 1.108181/1.104852/1.106930 nats, with exact-Bayes NLL 1.092796/1.091496/1.091044. Exact-predictive KL is 0.016676/0.014159/0.015992 nats (mean 0.015609 ± 0.001063). Training-set NLL is lower, 1.081088/1.082796/1.081913. The small run therefore does not reach the published predictive-accuracy regime. The architecture, optimization, and exposure differences are bundled; these measurements do not establish which change caused the failure.
+
+### Saved evidence and interpretation
+
+`results/mess3_training.jsonl` contains three training rows. `results/mess3_reproduction.jsonl` contains 12 probe cells (three seeds × trained/untrained × normal/shuffled), 6,000 geometry rows (2,000 per seed), and 1,500 descriptive PCA rows. Every probe has finite joint metrics. Every geometry row has six exact and six reconstructed finite coordinates; exact targets are nonnegative and their maximum sum-to-one error is `4.44e-16`. Both `figures/mess3_geometry.png` and `figures/mess3_metrics.png` are generated only from these records. The geometry panels are descriptive projections; quantitative evidence is supplied by the held-out scores, not by visual resemblance.
+
+The registered result is negative: this CPU training protocol does not improve weighted-belief recovery over its initialized controls. It does not reproduce the paper's high-fidelity representation and supplies no Mess3 causal-erasure result. The earlier conceptual reproduction and causal extension remain separate experiments. All failed comparisons are retained, with no post-result tuning or seed replacement.
+
+### Registered training-diversity diagnosis
+
+The next experiment was registered in `STATE.md` at commit `a86534d` before creating any diagnosis checkpoint, record, or figure. Configuration digest `aa2de784730aa352` compares two conditions for exploratory seeds 10 and 11: `reused` traverses a fixed pool of 2,048 sequences, while `fresh` samples a new batch of 64 sequences for every optimizer update. Initialization, width-32 two-layer architecture, length 64, batch size 64, AdamW settings, supervised tokens per update, checkpoints, and held-out evaluation sequences are matched. Checkpoints are at initialization, 768 updates, and 3,072 updates. The registered primary prediction was lower held-out exact-predictive KL for fresh training at step 3,072 in both seeds.
+
+Four reference predictors quantify how much useful history the task contains. All values use the same held-out positions with a complete eight-token window:
+
+| predictor | exact-predictive KL | sampled NLL | uniform-to-Bayes gap recovered |
+|---|---:|---:|---:|
+| uniform | 0.008175 | 1.098612 | 0.000 |
+| fitted last token | 0.008028 | 1.098653 | 0.018 |
+| exact eight-token Bayes | 0.003313 | 1.093915 | 0.595 |
+| exact full-history Bayes | 0.000000 | 1.090834 | 1.000 |
+
+The last-token predictor barely improves on uniform, while eight observations recover about 59% of the available predictive advantage. This confirms that the task rewards history integration and supplies a meaningful scale for neural performance.
+
+The registered fresh-data prediction is supported in both exploratory seeds:
+
+| seed | condition | KL at step 0 | KL at step 768 | KL at step 3,072 | competence at step 3,072 |
+|---:|---|---:|---:|---:|---:|
+| 10 | reused | 0.067788 | 0.015030 | 0.203223 | −23.898 |
+| 10 | fresh | 0.067788 | 0.006586 | 0.001649 | 0.798 |
+| 11 | reused | 0.072412 | 0.012475 | 0.179832 | −20.511 |
+| 11 | fresh | 0.072412 | 0.006839 | 0.001301 | 0.844 |
+
+Both conditions begin from bit-identical same-seed parameters. At 768 updates, fresh training already beats uniform while remaining worse than the exact eight-token Bayes baseline; reused training remains worse than uniform. This predictive improvement is not yet the paper's geometry: fresh joint-belief R² is only 0.378–0.387 across layers, and component-posterior R² is −0.002 to 0.003. Continued fixed-pool optimization then damages held-out prediction severely despite seeing exactly the same number of supervised tokens per update. Fresh training approaches the full-history Bayes predictor instead. Sequence reuse therefore explains much of the predictive-generalization failure at the original budget, but data diversity alone does not rescue the original geometry result.
+
+Layerwise held-out probes were fitted on 1,024 new sequences and tested on 512 different sequences. At step 3,072, normal-control joint-belief results are:
+
+| seed | condition | block 1 R² | block 2 R² | final norm R² | block 2 component R² |
+|---:|---|---:|---:|---:|---:|
+| 10 | reused | 0.325 | 0.251 | 0.207 | 0.002 |
+| 10 | fresh | 0.474 | 0.726 | 0.677 | 0.497 |
+| 11 | reused | 0.302 | 0.250 | 0.216 | 0.002 |
+| 11 | fresh | 0.474 | 0.616 | 0.628 | 0.188 |
+
+Fresh-data geometry is strongest after block 2 rather than final normalization. Component-posterior recovery, which was absent at initialization, after 768 fresh updates, and in reused training, emerges only after 3,072 fresh updates. Conditional-state R² after fresh training is 0.91–0.93 across the two blocks, and block-2 pairwise-distance R² becomes positive in both seeds (0.327 and 0.097). Every shuffled-target joint-belief R² lies between −0.0048 and 0.0009. The relationship is therefore quantitative and held out; the accompanying plot is descriptive.
+
+The result does not reach the published joint-belief R² near 0.985, and the experiment has only two explicitly exploratory seeds. The 768-update comparison isolates fixed-pool reuse versus fresh data but improves prediction without recovering component geometry; the 3,072-update geometry result additionally changes total compute relative to the initial run. Architecture, initialization, optimizer, and context differences also remain. The uncached CPU command reported 3:02:13 wall time (957.8 seconds user, 53.0 seconds system), nearly exhausting the four-hour exploratory cap. The large wall/user-time discrepancy was not profiled, so it is not attributed to the sampler or any other single cause. At that stage, the next economical step was to optimize and benchmark sampling without changing the data law, then preregister fresh confirmatory seeds. The following section reports that confirmation.
+
+### Registered geometry-threshold test
+
+The follow-up was registered in `STATE.md` at commit `2bd1072` before creating a threshold checkpoint, result, or figure. Configuration digest `d2423ea9f3b44075` uses fresh vectorized samples, confirmation seeds 20–24, learning rates 0.003/0.0015, and checkpoints 0/384/768/1,152/1,536/2,304/3,072. Same-seed rate conditions share initialization, batch seeds, held-out prediction data, and probe splits. Every checkpoint is probed at block 1, block 2, and final normalization with normal and shuffled labels.
+
+The registered primary comparison fits quadratic regressions for normal-control block-2 component-posterior R² using either predictive competence or `log1p(step)`. Each leave-one-seed-out fold holds out both rate trajectories for one seed. Success required `MSE_competence / MSE_step < 0.80` and every shuffled-label component R² within ±0.02.
+
+The prediction fails in every fold:
+
+| held-out seed | competence MSE | log-step MSE | competence / step |
+|---:|---:|---:|---:|
+| 20 | 0.007820 | 0.003230 | 2.421 |
+| 21 | 0.008178 | 0.006037 | 1.355 |
+| 22 | 0.022388 | 0.008591 | 2.606 |
+| 23 | 0.016797 | 0.006273 | 2.678 |
+| 24 | 0.010667 | 0.003556 | 2.999 |
+| pooled | 0.013170 | 0.005537 | **2.378** |
+
+The shuffled-label range is −0.01074 to 0.01069, so the registered control passes. All 420 probe records have zero sequence overlap. The failure is therefore not caused by an obviously invalid probe control: over the complete initialization-to-3,072 trajectory, optimizer step predicts held-out-seed component geometry better than predictive competence under the registered quadratic model.
+
+Learning dynamics still show an orderly rate shift. At learning rate 0.003, mean block-2 component R² is 0.005/0.141/0.281/0.363 at steps 768/1,536/2,304/3,072. At learning rate 0.0015 it is −0.002/0.006/0.127/0.238. Final predictive competence is 0.850 and 0.814 respectively. Joint-belief R² reaches 0.684/0.628 and pairwise-distance R² becomes positive at both rates.
+
+Initialization complicates the chosen global functional form. Its mean competence is about −11.8, whereas post-initialization checkpoints lie near 0–0.85. An explicitly post-hoc sensitivity analysis applying the same LOSO comparison only to `step > 0` favors competence in every seed: pooled competence MSE is 0.002048 versus step MSE 0.004298, ratio 0.477. This is evidence that trained checkpoints may follow a competence-aligned regime, but it was discovered after the registered result and cannot convert the primary failure into a success. A future test must preregister a two-regime model and use new seeds.
+
+The general vectorized HMM sampler is distribution-tested against component, initial-state, transition, and emission probabilities. On 64 length-64 Mess3 sequences its 20-repeat median is 0.002622 seconds versus 0.062623 for the reference sampler, a 23.9× speedup. The complete registered command took 1,857 seconds wall time after reusing one 136.65-second pilot. This benchmark establishes feasibility only; it does not explain the earlier diagnosis command's wall/user-time discrepancy.
 
 ## Analytic ground truth
 
@@ -124,7 +241,7 @@ Component recovery and component-target predictive damage rise with depth, suppo
 
 ## Overlap-by-context interaction
 
-The next prediction was registered in `STATE.md` and committed as `8e27881` before running a fresh 2×2 grid. Overlap 0.00 versus 0.35 and sequence length 8 versus 64 varied; model size, 512 training sequences, 12 epochs, probe sizes, and seeds 0/1/2 were matched. The primary per-seed contrast was `I = [G(0.35,64) − G(0.35,8)] − [G(0,64) − G(0,8)]`, where `G` is trained-minus-untrained held-out component-posterior R². The registered prediction was `I > 0` for both models.
+The next prediction was registered in `STATE.md` and committed as `1665fe6` before running a fresh 2×2 grid. Overlap 0.00 versus 0.35 and sequence length 8 versus 64 varied; model size, 512 training sequences, 12 epochs, probe sizes, and seeds 0/1/2 were matched. The primary per-seed contrast was `I = [G(0.35,64) − G(0.35,8)] − [G(0,64) − G(0,8)]`, where `G` is trained-minus-untrained held-out component-posterior R². The registered prediction was `I > 0` for both models.
 
 | model | component gain: overlap 0, length 8/64 | component gain: overlap .35, length 8/64 | paired component interaction I | paired conditional-state interaction I |
 |---|---:|---:|---:|---:|
@@ -139,7 +256,7 @@ An alternative explanation is a recovery ceiling at zero overlap. Trained compon
 
 ## Eight-token context-restart control
 
-Registered in `STATE.md` and committed as `a0207a1` before any result, this control reused the length-64 interaction checkpoints. At held-out prediction positions 7–62, each model was scored with its full prefix and separately after restarting on only the most recent eight observed tokens. The full-history exact Bayes belief and predictive distribution remained the scoring targets. The oracle eight-token Bayes filter uses the unconditional HMM state prior propagated to the window's elapsed starting position, not the time-zero prior. Probe fitting used seed+909 data, testing used seed+1009 data, and full/restart probes were fitted separately. Three seeds, both models, both overlaps, trained/untrained controls, and shuffled-label probes yielded 96 model and six oracle raw records, all on CPU.
+Registered in `STATE.md` and committed as `632a833` before any result, this control reused the length-64 interaction checkpoints. At held-out prediction positions 7–62, each model was scored with its full prefix and separately after restarting on only the most recent eight observed tokens. The full-history exact Bayes belief and predictive distribution remained the scoring targets. The oracle eight-token Bayes filter uses the unconditional HMM state prior propagated to the window's elapsed starting position, not the time-zero prior. Probe fitting used seed+909 data, testing used seed+1009 data, and full/restart probes were fitted separately. Three seeds, both models, both overlaps, trained/untrained controls, and shuffled-label probes yielded 96 model and six oracle raw records, all on CPU.
 
 The registered paired overlap contrast is `[damage at overlap .35] − [damage at overlap 0]`, with component damage defined as full-minus-restart held-out posterior R² and predictive damage as restart-minus-full KL from the exact full-history next-token distribution. Values are mean ± population seed SD (n=3).
 
@@ -155,7 +272,7 @@ Conditional-state results are not selective evidence for training: the GRU inter
 
 ## Position-preserving Transformer restart
 
-This control was registered in `STATE.md` at `07f799b` and planned in `b0dec1f` before running. It reused the exact same length-64 Transformer checkpoints and held-out sequences, comparing full prefixes, eight-token windows with position indices reset to 0–7, and the same windows indexed at their original absolute positions. The only difference between the two window conditions is the positional embedding assigned to each of the same eight tokens. Full-history Bayes targets and elapsed-prior eight-token oracle rows are unchanged. The 72 Transformer model cells plus six oracle cells cover both overlaps, all three seeds, trained/untrained networks, and normal/shuffled-label probes. Full/reset/oracle metrics reproduce the earlier JSONL exactly (maximum absolute numerical difference 0).
+This control was registered in `STATE.md` at `f247250` before running. It reused the exact same length-64 Transformer checkpoints and held-out sequences, comparing full prefixes, eight-token windows with position indices reset to 0–7, and the same windows indexed at their original absolute positions. The only difference between the two window conditions is the positional embedding assigned to each of the same eight tokens. Full-history Bayes targets and elapsed-prior eight-token oracle rows are unchanged. The 72 Transformer model cells plus six oracle cells cover both overlaps, all three seeds, trained/untrained networks, and normal/shuffled-label probes. Full/reset/oracle metrics reproduce the earlier JSONL exactly (maximum absolute numerical difference 0).
 
 The preregistered simple positional-benefit prediction failed. At overlap .35, original-minus-reset R² is −0.034 ± 0.002 for trained component belief and −0.284 ± 0.035 for untrained component belief; for conditional-state belief it is −0.137 ± 0.030 and −0.221 ± 0.030. These signs are negative in every seed. Thus preserving indices does not improve absolute decodability. Resetting positions can make recent-window random features unusually easy to decode, particularly in the untrained model. Predictive KL benefit (`KL_reset − KL_original`) is −0.0051 ± 0.0063 for trained and +0.0161 ± 0.0643 for untrained at overlap .35; it is not a stable absolute behavioral improvement either.
 
@@ -165,7 +282,7 @@ This is still a window-restart intervention: removing older tokens changes atten
 
 ## Matched eight-input-token training control
 
-The final diagnostic registered in `STATE.md` at `b28f940` corrected an off-by-one issue before running: length-nine next-token training sequences give a model eight input positions. Six width-32, two-layer Transformer checkpoints were trained for 12 epochs on 512 length-nine HMM sequences at overlap 0/.35 and seeds 0/1/2. The short and length-64 configs differ only in training sequence length; architecture, optimizer settings, initial seed, and training sequence count are otherwise matched. On the exact same held-out length-64 test batches and positions 7–62 used above, the short-trained model received the same reset-index last-eight-token windows as the long-trained reset control. Independently fitted normal/shuffled probes and exact full-history Bayes targets were unchanged. Twelve short-model raw cells and six training records are saved with both evaluation and checkpoint config hashes; the joined figure reads those records plus the published position-restart JSONL.
+The final diagnostic registered in `STATE.md` at `be807c9` corrected an off-by-one issue before running: length-nine next-token training sequences give a model eight input positions. Six width-32, two-layer Transformer checkpoints were trained for 12 epochs on 512 length-nine HMM sequences at overlap 0/.35 and seeds 0/1/2. The short and length-64 configs differ only in training sequence length; architecture, optimizer settings, initial seed, and training sequence count are otherwise matched. On the exact same held-out length-64 test batches and positions 7–62 used above, the short-trained model received the same reset-index last-eight-token windows as the long-trained reset control. Independently fitted normal/shuffled probes and exact full-history Bayes targets were unchanged. Twelve short-model raw cells and six training records are saved with both evaluation and checkpoint config hashes; the joined figure reads those records plus the published position-restart JSONL.
 
 The registered prediction that short training would *lower* eight-token exact-predictive KL at overlap .35 failed in all three seeds. Paired short-minus-long-reset KL is +0.0434/+0.0289/+0.0176 nats (mean +0.0300 ± 0.0106), and NLL is +0.0422/+0.0267/+0.0183 (mean +0.0291 ± 0.0099). At overlap 0, the KL difference is also positive, +0.0216 ± 0.0027. Component-posterior R² is lower by 0.048 ± 0.014 at overlap .35 and 0.016 ± 0.003 at overlap 0; conditional-state R² differs by only +0.005 ± 0.017 at overlap .35. The shuffled-label component R² is within ±0.014. The exact eight-token Bayes oracle KL at overlap .35 is 0.0225 versus mean model KL about 0.0701 short-trained and 0.0401 long-trained reset. The short model does not recover older-token information, and it also predicts the eight-token windows less accurately than the restarted long model.
 
@@ -173,7 +290,7 @@ This rejects the *simple* window-distribution explanation that short training al
 
 ## Token- and optimizer-step-matched short training
 
-Registered in `STATE.md` at `b115b52` and planned in `403162a` before running, this follow-up trained length-nine Transformers on 4,032 sequences in batches of 504 at overlap 0/.35, seeds 0/1/2, for 12 epochs. Both short and long training therefore see exactly 32,256 supervised input/next-token pairs per epoch and eight optimizer batches per epoch: `4,032×8 = 512×63` and `4,032/504 = 512/64 = 8`. Width, depth, learning rate, initialization seed, held-out eight-token windows, and Bayes targets are fixed. The larger short-model batch and greater sequence diversity are required confounds of matching both budgets. Six CPU training records and 12 independent-probe budget cells are saved with distinct checkpoint and evaluation config hashes; the figure joins these raw files to the standard-short and position-restart raw files.
+Registered in `STATE.md` at `a33e597` and planned in `3fc19c7` before running, this follow-up trained length-nine Transformers on 4,032 sequences in batches of 504 at overlap 0/.35, seeds 0/1/2, for 12 epochs. Both short and long training therefore see exactly 32,256 supervised input/next-token pairs per epoch and eight optimizer batches per epoch: `4,032×8 = 512×63` and `4,032/504 = 512/64 = 8`. Width, depth, learning rate, initialization seed, held-out eight-token windows, and Bayes targets are fixed. The larger short-model batch and greater sequence diversity are required confounds of matching both budgets. Six CPU training records and 12 independent-probe budget cells are saved with distinct checkpoint and evaluation config hashes; the figure joins these raw files to the standard-short and position-restart raw files.
 
 The registered `KL_budget_short − KL_standard_short < 0` prediction at overlap .35 is supported in every seed: −0.0611/−0.0283/−0.0189 nats, mean −0.0361 ± 0.0181. NLL falls by 0.0347 ± 0.0149 and component-posterior R² rises by 0.053 ± 0.021. At overlap 0, KL falls by 0.0291 ± 0.0026 and component R² rises by 0.022 ± 0.007. Conditional-state R² rises by 0.028 ± 0.021 at overlap .35, secondary to the predictive test. Shuffled-label component R² stays within ±0.017. The budget-matched short model's mean KL at overlap .35 is 0.0340, versus 0.0701 for standard short training, 0.0401 for the long-trained reset-index restart, and the exact eight-token Bayes information-loss floor of 0.0225. Budget-minus-long-reset KL is −0.0177/+0.0006/−0.0012 across seeds; the short model now matches or slightly improves on the long model when both see only the same eight tokens.
 
@@ -181,7 +298,7 @@ This falsifies the temptation to interpret the fixed-sequence-count short-model 
 
 ## GRU architecture-generalization control
 
-The remaining architecture check was registered in `STATE.md` at `534747d` and planned in `97805c5` before running. At overlap .35 and seeds 0/1/2, width-32 two-layer GRUs were trained on both the standard length-nine protocol (512 sequences, batch 64) and token/step-matched protocol (4,032 sequences, batch 504). Both used 12 epochs and learning rate .003. They were scored on the same held-out length-64 batches, reset-index last-eight-token windows, and full-history Bayes targets as the published length-64 GRU restart. Six evaluation cells and three training records per short protocol include normal/shuffled probes and distinct checkpoint/evaluation config hashes.
+The remaining architecture check was registered in `STATE.md` at `0dcc41a` before running. At overlap .35 and seeds 0/1/2, width-32 two-layer GRUs were trained on both the standard length-nine protocol (512 sequences, batch 64) and token/step-matched protocol (4,032 sequences, batch 504). Both used 12 epochs and learning rate .003. They were scored on the same held-out length-64 batches, reset-index last-eight-token windows, and full-history Bayes targets as the published length-64 GRU restart. Six evaluation cells and three training records per short protocol include normal/shuffled probes and distinct checkpoint/evaluation config hashes.
 
 The registered `KL_standard_short − KL_budget_short > 0` prediction is supported in all seeds: +0.00511/+0.00487/+0.00635 nats, mean +0.00544 ± 0.00065. NLL improves by +0.00594 ± 0.00175 in the same reduction convention, and component-posterior R² rises by +0.00765 ± 0.00213. Conditional-state R² is unchanged (budget gain −0.00013 ± 0.00041). Shuffled-label component R² remains within ±0.018. Budget-short KL is 0.0269 ± 0.0014, versus standard-short 0.0323 ± 0.0019, long-trained restart 0.0290 ± 0.0018, and exact eight-token Bayes information-loss 0.0225 ± 0.0016. Budget-minus-long-reset KL is −0.00358/−0.00219/−0.00030: exposure-matched short training is slightly better on the identical windows in every seed.
 
@@ -200,7 +317,8 @@ The direction therefore generalizes from Transformer to GRU, although the GRU ma
 - Length-nine-trained Transformers had worse eight-window KL and component R² than the restarted length-64 models in every seed, falsifying the predicted short-training rescue under fixed sequence count. Their training token budgets are not equal.
 - Matching short training to the long model's supervised-token and optimizer-step budgets improves short-window KL in every seed, overturning the fixed-count inference. Batch size and training-sequence diversity move with budget, so the improvement is not uniquely attributable to token count.
 - The matched-budget improvement generalizes to the GRU but is modest (+0.0054 nats KL reduction); GRU conditional-state R² is unchanged.
-- The simple state-emission HMMs do not recreate Mess3’s fractal reachable-state geometry. PCA separation is not evidence for telescoping cones.
+- The earlier simple two-state sources do not recreate Mess3's reachable-state geometry. The initial direct Mess3 fixed-pool experiment reproduces that process but fails the registered trained-over-untrained test. The later diagnosis shows that sequence reuse confounds predictive generalization at 768 updates, but component geometry remains absent at that budget. Fresh data plus 3,072 updates improves joint-belief recovery and makes block-2 distance R² positive in both exploratory seeds. The diagnosis has only two seeds and still falls well below the published R².
+- The registered five-seed threshold hypothesis fails: a global quadratic in competence generalizes worse than a quadratic in log-step. A post-hoc exclusion of initialization reverses the result, exposing regime sensitivity but requiring new confirmation rather than reinterpretation.
 - The central result still covers only overlap 0.35, two components, length 32, and width 32. The exploratory one-axis sweeps and one matched 2×2 overlap-by-context grid leave most cross-axis interactions untested.
 - Erasure is based on a single linear probe fit. Iterative nullspace projection or nonlinear adversaries could find residual information not measured here.
 
@@ -208,6 +326,18 @@ The direction therefore generalizes from Transformer to GRU, although the GRU ma
 
 The checked-in central run used CPU only. In the observed environment, six training runs took about 39 seconds, cached-checkpoint reproduction analysis 14.1 seconds, and the three-split intervention analysis 17.4 seconds. The complete overlap, length, component-count, width, and depth sweeps took 151.7, 146.5, 136.5, 147.6, and about 25 seconds; the matched interaction grid took about three minutes. `make smoke` runs the complete one-seed pipeline. `make train`, `make reproduce`, `make extension`, `make figures`, and the eleven `make sweep-*` commands regenerate the artifact. Checkpoints are validated against the full requested configuration, model, and seed. Partial CLI reruns atomically replace only matching result cells. Records carry a configuration digest and runtime library versions. Figures read only JSONL records, discard stale outputs, facet architectures, state seed sample sizes, and keep central aggregation separate from sweep records.
 
+### Mess3 audit
+
+After preregistration at `723b96e`, the first `/usr/bin/time -p make reproduce-mess3` ran with no Mess3 checkpoints or outputs and completed in 162.96 seconds (140.92 user, 15.67 system). CPU provenance is Python 3.14.2, NumPy 2.4.1, and PyTorch 2.11.0. `/usr/bin/time -p pytest -q` passed all 82 tests in 37.84 seconds (40.65 seconds command wall time). The second `/usr/bin/time -p make reproduce-mess3` completed in 34.68 seconds (31.46 user, 2.13 system), reused all three checkpoints without changing their bytes or modification times, and regenerated both figures. Both JSONL files matched the first run in parsed values and bytes; both PNGs were byte-identical. This verifies cached-checkpoint determinism in the recorded environment, not checkpoint-free retraining or equality across library versions. The initial failed prediction is retained in full.
+
+### Training-diversity diagnosis audit
+
+The exploratory diagnosis was preregistered at `a86534d`; immediately beforehand, no diagnosis checkpoint, JSONL file, or figure existed. The first `time make diagnose-mess3` completed the full two-seed fresh/reused grid in 3:02:13 wall time (957.77 seconds user, 52.97 seconds system). It created four baseline rows, 12 training rows, 72 probe rows, 12 checkpoints, and two figures. All records share configuration digest `aa2de784730aa352`; probe sequence overlap is zero and every reported metric is finite. A cached rerun took 2:10.45, explicitly reused the complete checkpoint/training-record set, and regenerated the baselines, probes, and figures. All three JSONL SHA-256 hashes and both PNG hashes were unchanged. The cause of the initial wall/user-time discrepancy was not profiled; the observed wall time alone prevents claiming the current command is a cheap five-seed confirmation path.
+
+### Geometry-threshold audit
+
+The threshold prediction was committed at `2bd1072`; immediately beforehand no threshold checkpoint, result, or figure existed. A single seed-20/rate-0.003 pilot took 136.65 seconds wall time. The full command reused that cell and completed in 1,857.23 seconds wall time (1,695.31 user, 137.90 system). It produced 70 unique training cells, 420 unique probe cells, one summary, 70 checkpoints, and two figures. Every numerical metric is finite, every probe split has zero sequence overlap, and no registered seed was replaced. The raw JSONL files and figures are regenerated only from the checked-in configuration and checkpoints; checkpoint-free determinism for this new grid has not been audited.
+
 ### Fresh-clone audit
 
-After the final GRU control, commit `0532b34` was cloned into a new temporary directory with no checkpoints. On CPU, all five required artifact commands, all eleven sweep targets, and the full 65-test suite completed successfully. Every regenerated numerical value matched the committed JSONL exactly. Nine older overlap/length/component sweep files differed only because the current generators now add `components` and `model_width` provenance fields; after stripping those two fields, all 34,650 affected records were identical as multisets. Those nine files were updated to the current schema. Every regenerated PNG was byte-identical to its committed counterpart. No GPU result is claimed.
+After the final GRU control, commit `a4b7200` was cloned into a new temporary directory with no checkpoints. On CPU, all five required artifact commands, all eleven sweep targets, and the full 65-test suite completed successfully. Every regenerated numerical value matched the committed JSONL exactly. Nine older overlap/length/component sweep files differed only because the current generators now add `components` and `model_width` provenance fields; after stripping those two fields, all 34,650 affected records were identical as multisets. Those nine files were updated to the current schema. Every regenerated PNG was byte-identical to its committed counterpart. No GPU result is claimed.

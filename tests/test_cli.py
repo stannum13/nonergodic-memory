@@ -4,17 +4,152 @@ import subprocess
 import sys
 from pathlib import Path
 import pytest
+import yaml
 
 from nonergodic_memory.figures import _load_records, generate_figures
 from nonergodic_memory.experiment import load_config, train_one
+from mess3_diagnose import _replace_keyed_jsonl, _training_results_complete
+from mess3_threshold import _training_records_complete
 
 
 ROOT = Path(__file__).parents[1]
 
 
+def test_keyed_diagnosis_write_preserves_unselected_cells(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    existing = [
+        {"config_sha256": "digest", "seed": seed, "condition": condition, "step": 0,
+         "value": f"old-{seed}-{condition}"}
+        for seed in (10, 11)
+        for condition in ("reused", "fresh")
+    ]
+    path.write_text("".join(json.dumps(row) + "\n" for row in existing))
+
+    _replace_keyed_jsonl(
+        path,
+        [{"config_sha256": "digest", "seed": 10, "condition": "fresh", "step": 0,
+          "value": "new"}],
+        ("config_sha256", "seed", "condition", "step"),
+    )
+
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    assert len(rows) == 4
+    assert next(row for row in rows if row["seed"] == 10 and row["condition"] == "fresh")[
+        "value"
+    ] == "new"
+    assert next(row for row in rows if row["seed"] == 11 and row["condition"] == "reused")[
+        "value"
+    ] == "old-11-reused"
+
+
+def test_keyed_diagnosis_write_rejects_duplicate_existing_cells(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    row = {"config_sha256": "digest", "seed": 10, "condition": "fresh", "step": 0}
+    path.write_text(json.dumps(row) + "\n" + json.dumps(row) + "\n")
+
+    with pytest.raises(ValueError, match="duplicate"):
+        _replace_keyed_jsonl(path, [row], ("config_sha256", "seed", "condition", "step"))
+
+
+def test_keyed_diagnosis_write_discards_incompatible_configuration(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    old = {"config_sha256": "old", "seed": 10, "condition": "fresh", "step": 0}
+    new = {"config_sha256": "new", "seed": 10, "condition": "fresh", "step": 0}
+    path.write_text(json.dumps(old) + "\n")
+
+    _replace_keyed_jsonl(path, [new], ("config_sha256", "seed", "condition", "step"))
+
+    assert [json.loads(line) for line in path.read_text().splitlines()] == [new]
+
+
+def test_training_result_cache_rejects_conflicting_provenance(tmp_path: Path) -> None:
+    path = tmp_path / "records.jsonl"
+    config = {"train": {"checkpoint_steps": [0, 2]}}
+    rows = [
+        {
+            "record_type": "diagnostic_training",
+            "config_sha256": "digest",
+            "seed": 10,
+            "condition": "fresh",
+            "step": step,
+        }
+        for step in (0, 2)
+    ]
+    rows.append({**rows[0], "config_sha256": "other"})
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    assert not _training_results_complete(path, "digest", config, [10], ["fresh"])
+
+
+def test_threshold_training_cache_rejects_wrong_rate_provenance(tmp_path: Path) -> None:
+    config = {
+        "data": {"sampler": "vectorized"},
+        "train": {"checkpoint_steps": [0]},
+        "threshold": {"seeds": [6], "learning_rates": [0.01]},
+    }
+    from nonergodic_memory.experiment import config_digest
+
+    row = {
+        "base_config_sha256": config_digest(config),
+        "config_sha256": "wrong",
+        "record_type": "threshold_training",
+        "sampler": "vectorized",
+        "seed": 6,
+        "learning_rate": 0.01,
+        "step": 0,
+        "competence": 0.0,
+        "kl_exact": 0.1,
+        "nll": 1.0,
+        "uniform_kl": 0.1,
+    }
+    path = tmp_path / "threshold.jsonl"
+    path.write_text(json.dumps(row) + "\n")
+
+    assert not _training_records_complete(path, config, [6], [0.01])
+
+
+def test_threshold_training_cache_accepts_other_configured_rate_rows(tmp_path: Path) -> None:
+    config = {
+        "data": {"sampler": "vectorized"},
+        "train": {"checkpoint_steps": [0]},
+        "threshold": {"seeds": [6], "learning_rates": [0.01, 0.005]},
+    }
+    from nonergodic_memory.experiment import config_digest
+    from nonergodic_memory.mess3_threshold import _rate_config
+
+    rows = []
+    for rate in config["threshold"]["learning_rates"]:
+        rows.append(
+            {
+                "base_config_sha256": config_digest(config),
+                "config_sha256": config_digest(_rate_config(config, rate)),
+                "record_type": "threshold_training",
+                "sampler": "vectorized",
+                "seed": 6,
+                "learning_rate": rate,
+                "step": 0,
+                "competence": 0.0,
+                "kl_exact": 0.1,
+                "nll": 1.0,
+                "uniform_kl": 0.1,
+            }
+        )
+    path = tmp_path / "threshold.jsonl"
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+
+    assert _training_records_complete(path, config, [6], [0.01])
+
+
 def test_entrypoints_have_help() -> None:
     environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
-    for script in ("train.py", "probe.py", "intervene.py", "context_restart.py"):
+    for script in (
+        "train.py",
+        "probe.py",
+        "intervene.py",
+        "context_restart.py",
+        "mess3_diagnose.py",
+        "mess3_threshold.py",
+    ):
         completed = subprocess.run(
             [sys.executable, str(ROOT / "src" / script), "--help"],
             env=environment,
@@ -24,6 +159,267 @@ def test_entrypoints_have_help() -> None:
         )
         assert completed.returncode == 0
         assert "--config" in completed.stdout
+
+
+def test_mess3_threshold_cli_writes_and_preserves_tiny_grid(tmp_path: Path) -> None:
+    config = {
+        "data": {
+            "generator": "mess3",
+            "sampler": "vectorized",
+            "sequence_length": 8,
+            "train_sequences": 16,
+            "test_sequences": 8,
+        },
+        "model": {"width": 8, "layers": 2, "heads": 2, "max_length": 16},
+        "train": {
+            "batch_size": 4,
+            "learning_rate": 0.01,
+            "weight_decay": 0.01,
+            "checkpoint_steps": [0, 2],
+        },
+        "diagnosis": {"window": 3},
+        "probe": {"train_sequences": 24, "test_sequences": 16},
+        "threshold": {"seeds": [6, 7], "learning_rates": [0.01, 0.005]},
+    }
+    config_path = tmp_path / "threshold.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    training_path = tmp_path / "training.jsonl"
+    probe_path = tmp_path / "probes.jsonl"
+    summary_path = tmp_path / "summary.jsonl"
+    figure_dir = tmp_path / "figures"
+    command = [
+        sys.executable,
+        str(ROOT / "src/mess3_threshold.py"),
+        "--config",
+        str(config_path),
+        "--mode",
+        "all",
+        "--checkpoint-dir",
+        str(tmp_path / "checkpoints"),
+        "--training-results",
+        str(training_path),
+        "--probe-results",
+        str(probe_path),
+        "--summary-results",
+        str(summary_path),
+        "--output-dir",
+        str(figure_dir),
+    ]
+    environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+
+    pilot = command.copy()
+    pilot[pilot.index("all")] = "train"
+    pilot.extend(["--seeds", "6", "--learning-rates", "0.01"])
+    pilot_run = subprocess.run(
+        pilot, env=environment, capture_output=True, text=True, check=False
+    )
+    assert pilot_run.returncode == 0, pilot_run.stderr
+    pilot_checkpoint = tmp_path / "checkpoints/lr_0p01/transformer_seed6_fresh_step2.pt"
+    pilot_mtime = pilot_checkpoint.stat().st_mtime_ns
+
+    completed = subprocess.run(
+        command, env=environment, capture_output=True, text=True, check=False
+    )
+
+    assert completed.returncode == 0, completed.stderr
+    assert pilot_checkpoint.stat().st_mtime_ns == pilot_mtime
+    training = [json.loads(line) for line in training_path.read_text().splitlines()]
+    probes = [json.loads(line) for line in probe_path.read_text().splitlines()]
+    assert len(training) == 2 * 2 * 2
+    assert len(probes) == 2 * 2 * 2 * 3 * 2
+    summary = [json.loads(line) for line in summary_path.read_text().splitlines()]
+    assert len(summary) == 1
+    assert summary[0]["record_type"] == "threshold_summary"
+    assert (figure_dir / "mess3_threshold_learning.png").exists()
+    assert (figure_dir / "mess3_threshold_alignment.png").exists()
+    partial = [
+        *command,
+        "--seeds",
+        "6",
+        "--learning-rates",
+        "0.01",
+    ]
+    rerun = subprocess.run(
+        partial, env=environment, capture_output=True, text=True, check=False
+    )
+    assert rerun.returncode == 0, rerun.stderr
+    assert len(training_path.read_text().splitlines()) == 2 * 2 * 2
+    assert len(probe_path.read_text().splitlines()) == 2 * 2 * 2 * 3 * 2
+
+
+def test_mess3_diagnosis_cli_writes_complete_tiny_grid(tmp_path: Path) -> None:
+    config = {
+        "data": {"generator": "mess3", "sequence_length": 8,
+                 "train_sequences": 16, "test_sequences": 8},
+        "model": {"width": 8, "layers": 2, "heads": 2, "max_length": 16},
+        "train": {"batch_size": 4, "learning_rate": 0.01, "weight_decay": 0.01,
+                  "checkpoint_steps": [0, 2]},
+        "diagnosis": {"window": 3, "baseline_fit_sequences": 32},
+        "probe": {"train_sequences": 32, "test_sequences": 24},
+    }
+    config_path = tmp_path / "diagnosis.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    paths = {
+        "baseline": tmp_path / "baseline.jsonl",
+        "training": tmp_path / "training.jsonl",
+        "probe": tmp_path / "probe.jsonl",
+    }
+    command = [
+        sys.executable, str(ROOT / "src/mess3_diagnose.py"),
+        "--config", str(config_path), "--mode", "all", "--seeds", "6", "7",
+        "--expected-seeds", "6", "7",
+        "--checkpoint-dir", str(tmp_path / "checkpoints"),
+        "--baseline-results", str(paths["baseline"]),
+        "--training-results", str(paths["training"]),
+        "--probe-results", str(paths["probe"]),
+        "--output-dir", str(tmp_path / "figures"),
+    ]
+    completed = subprocess.run(
+        command, env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    baseline_rows = [json.loads(line) for line in paths["baseline"].read_text().splitlines()]
+    training_rows = [json.loads(line) for line in paths["training"].read_text().splitlines()]
+    probe_rows = [json.loads(line) for line in paths["probe"].read_text().splitlines()]
+    assert len(baseline_rows) == 4
+    assert {(row["condition"], row["step"]) for row in training_rows} == {
+        (condition, step) for condition in ("reused", "fresh") for step in (0, 2)
+    }
+    assert len(training_rows) == 2 * 2 * 2
+    assert len(probe_rows) == 2 * 2 * 2 * 3 * 2
+    assert (tmp_path / "figures/mess3_predictive_baselines.png").exists()
+    assert (tmp_path / "figures/mess3_learning_geometry.png").exists()
+
+    rerun = subprocess.run(
+        command, env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True, text=True, check=False,
+    )
+    assert rerun.returncode == 0, rerun.stderr
+    assert "reused complete diagnostic checkpoints" in rerun.stdout
+
+    untouched = {
+        (row["seed"], row["condition"], row["step"]): row
+        for row in training_rows
+        if row["seed"] == 7 or row["condition"] == "reused"
+    }
+    paths["training"].write_text(
+        "".join(
+            json.dumps(row) + "\n"
+            for row in training_rows
+            if not (row["seed"] == 6 and row["condition"] == "fresh" and row["step"] == 2)
+        )
+    )
+    partial = command.copy()
+    seed_index = partial.index("--seeds")
+    del partial[seed_index + 2]
+    partial.extend(["--conditions", "fresh"])
+    partial_run = subprocess.run(
+        partial, env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
+        capture_output=True, text=True, check=False,
+    )
+    assert partial_run.returncode == 0, partial_run.stderr
+    merged = [json.loads(line) for line in paths["training"].read_text().splitlines()]
+    assert len(merged) == 2 * 2 * 2
+    merged_by_cell = {(row["seed"], row["condition"], row["step"]): row for row in merged}
+    assert {key: merged_by_cell[key] for key in untouched} == untouched
+    merged_probes = [json.loads(line) for line in paths["probe"].read_text().splitlines()]
+    assert len(merged_probes) == 2 * 2 * 2 * 3 * 2
+
+
+def test_mess3_cli_records_generator_without_fabricated_overlap(tmp_path: Path) -> None:
+    config = {
+        "data": {
+            "generator": "mess3",
+            "sequence_length": 8,
+            "train_sequences": 32,
+            "test_sequences": 16,
+        },
+        "model": {"width": 12, "layers": 1, "heads": 2},
+        "train": {"epochs": 1, "batch_size": 16, "learning_rate": 0.02},
+        "probe": {"train_sequences": 16, "test_sequences": 16},
+    }
+    config_path = tmp_path / "mess3.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    checkpoint_dir = tmp_path / "checkpoints"
+    training_results = tmp_path / "training.jsonl"
+    environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    train = subprocess.run(
+        [
+            sys.executable, str(ROOT / "src" / "train.py"), "--config", str(config_path),
+            "--models", "gru", "--seeds", "0", "--output-dir", str(checkpoint_dir),
+            "--results", str(training_results),
+        ],
+        env=environment, capture_output=True, text=True, check=False,
+    )
+    assert train.returncode == 0, train.stderr
+    probe_results = tmp_path / "probe.jsonl"
+    probe = subprocess.run(
+        [
+            sys.executable, str(ROOT / "src" / "probe.py"), "--config", str(config_path),
+            "--models", "gru", "--seeds", "0", "--checkpoint-dir", str(checkpoint_dir),
+            "--results", str(probe_results),
+        ],
+        env=environment, capture_output=True, text=True, check=False,
+    )
+    assert probe.returncode == 0, probe.stderr
+    geometry = [json.loads(line) for line in probe_results.read_text().splitlines()
+                if json.loads(line)["record_type"] == "mess3_geometry"]
+    assert len(geometry) == 16 * 7
+    assert all(row["training_condition"] == "trained" for row in geometry)
+    assert all(row["sequence_id"] >= 1_000_000 for row in geometry)
+    assert all(row["config_sha256"] and row["python_version"] and row["numpy_version"]
+               and row["torch_version"] for row in geometry)
+    for row in geometry:
+        assert all(f"{prefix}_b{i}" in row for prefix in ("exact", "pred") for i in range(6))
+        assert sum(row[f"exact_b{i}"] for i in range(6)) == pytest.approx(1.)
+    for path in (training_results, probe_results):
+        rows = [json.loads(line) for line in path.read_text().splitlines()]
+        assert rows
+        assert all(row["generator"] == "mess3" for row in rows)
+        assert all("overlap" not in row for row in rows)
+
+
+@pytest.mark.parametrize("cache", ["complete", "absent", "partial"])
+def test_mess3_reproduction_script_reuses_only_complete_runs(tmp_path: Path, cache: str) -> None:
+    # Stub the interpreter boundary: exercise real shell orchestration without
+    # running the full three-seed experiment in the CLI test suite.
+    executable = tmp_path / "python"
+    log = tmp_path / "commands.jsonl"
+    executable.write_text(
+        f"#!{sys.executable}\n"
+        "import json, os, sys\n"
+        "args = sys.argv[1:]\n"
+        "with open(os.environ['COMMAND_LOG'], 'a') as handle:\n"
+        "    handle.write(json.dumps(args) + '\\n')\n"
+        "if len(args) > 1 and args[1] in ('nonergodic_memory.checkpoints', 'nonergodic_memory.training_records'):\n"
+        "    seed = args[args.index('--seeds') + 1]\n"
+        "    cache = os.environ['CACHE_STATE']\n"
+        "    if cache == 'absent' or (cache == 'partial' and\n"
+        "        ((seed == '1' and args[1].endswith('checkpoints')) or\n"
+        "         (seed == '2' and args[1].endswith('training_records')))):\n"
+        "        sys.exit(1)\n"
+    )
+    executable.chmod(0o755)
+    completed = subprocess.run(
+        ["bash", str(ROOT / "scripts" / "reproduce_mess3.sh")], cwd=ROOT,
+        env={**os.environ, "PATH": f"{tmp_path}:{os.environ['PATH']}",
+             "COMMAND_LOG": str(log), "CACHE_STATE": cache},
+        capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, completed.stderr
+    commands = [json.loads(line) for line in log.read_text().splitlines()]
+    trains = [args for args in commands if args[0] == "src/train.py"]
+    assert [args[args.index("--seeds") + 1] for args in trains] == {
+        "complete": [], "absent": ["0", "1", "2"], "partial": ["1", "2"]
+    }[cache]
+    assert all(args[args.index("--models") + 1] == "transformer" for args in trains)
+    assert all(args[args.index("--results") + 1] == "results/mess3_training.jsonl" for args in trains)
+    probe = next(args for args in commands if args[0] == "src/probe.py")
+    assert probe[probe.index("--seeds") + 1:probe.index("--seeds") + 4] == ["0", "1", "2"]
+    assert probe[probe.index("--models") + 1] == "transformer"
+    assert probe[probe.index("--results") + 1] == "results/mess3_reproduction.jsonl"
+    assert commands[-1][:2] == ["-m", "nonergodic_memory.mess3_figures"]
 
 
 def test_context_restart_cli_writes_aligned_raw_records(tmp_path: Path) -> None:

@@ -1,0 +1,21 @@
+data:
+  generator: mess3
+  sequence_length: 64
+  train_sequences: 2048
+  test_sequences: 256
+model:
+  width: 32
+  layers: 2
+  heads: 4
+  max_length: 128
+train:
+  batch_size: 64
+  learning_rate: 0.003
+  weight_decay: 0.01
+  checkpoint_steps: [0, 768, 3072]
+diagnosis:
+  window: 8
+  baseline_fit_sequences: 2048
+probe:
+  train_sequences: 1024
+  test_sequences: 512

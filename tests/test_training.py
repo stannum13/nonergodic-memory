@@ -2,7 +2,12 @@ from pathlib import Path
 import json
 import pytest
 
-from nonergodic_memory.experiment import replace_jsonl_runs, train_one, validate_checkpoint
+from nonergodic_memory.experiment import (
+    mixture_from_config,
+    replace_jsonl_runs,
+    train_one,
+    validate_checkpoint,
+)
 from nonergodic_memory.checkpoints import checkpoint_set_matches
 
 
@@ -13,6 +18,15 @@ def tiny_config() -> dict:
         "train": {"epochs": 4, "batch_size": 16, "learning_rate": 0.02},
         "probe": {"train_sequences": 16, "test_sequences": 16},
     }
+
+
+def test_mixture_from_config_selects_published_mess3() -> None:
+    config = tiny_config()
+    config["data"]["generator"] = "mess3"
+    config["data"].pop("overlap")
+    mixture = mixture_from_config(config)
+    assert mixture.vocab_size == 3
+    assert [component.n_states for component in mixture.components] == [3, 3]
 
 
 def test_train_one_is_reproducible(tmp_path: Path) -> None:
@@ -26,6 +40,8 @@ def test_training_reduces_loss(tmp_path: Path) -> None:
     result, _ = train_one(tiny_config(), "gru", seed=3, output_dir=tmp_path)
     assert result["train_nll"] < result["initial_train_nll"]
     assert result["device"] == "cpu"
+    assert result["generator"] == "simple"
+    assert result["overlap"] == 0.25
     assert (tmp_path / "gru_seed3.pt").exists()
     assert checkpoint_set_matches(tiny_config(), tmp_path, ["gru"], [3])
     changed = tiny_config()
