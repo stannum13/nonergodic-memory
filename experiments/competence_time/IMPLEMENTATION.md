@@ -68,10 +68,10 @@ separately where practical.
 
 ## Task 7: Execute and report without changing the rules
 
-- [ ] Run `make competence-time`, retaining raw JSONL and elapsed-time logs.
-- [ ] Regenerate figures only from the committed raw JSONL files.
-- [ ] Append the frozen verdict and all validity checks to this experiment
+- [x] Run `make competence-time`, retaining raw JSONL and elapsed-time logs.
+- [x] Regenerate figures only from the committed raw JSONL files.
+- [x] Append the frozen verdict and all validity checks to this experiment
   directory and update `STATE.md`.
-- [ ] Report negative and inconclusive outcomes as such; do not tune thresholds,
+- [x] Report negative and inconclusive outcomes as such; do not tune thresholds,
   discard seeds, or reclassify secondary analyses as confirmatory.
-- [ ] Run `pytest -q && make smoke` and commit the result artifacts.
+- [x] Run `pytest -q && make smoke` and commit the result artifacts.
