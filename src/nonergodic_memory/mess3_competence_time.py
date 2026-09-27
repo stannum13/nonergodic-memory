@@ -1,4 +1,4 @@
-"""Isolated Mess3 storage for the preregistered competence--time experiment."""
+"""Storage and frozen analysis for the competence--time experiment."""
 
 from __future__ import annotations
 
@@ -210,3 +210,168 @@ def validate_competence_time_grid(
         for row in probes
     ):
         raise ValueError("competence-time probe records contain non-finite metrics")
+
+
+def _competence_time_quadratic(
+    train_x: np.ndarray, train_y: np.ndarray, test_x: np.ndarray,
+) -> tuple[np.ndarray, dict]:
+    """Fit the registered quadratic, with scaling learned only from train_x."""
+    center = float(train_x.mean())
+    scale = float(train_x.std())
+    # A constant predictor reduces to an intercept; never divide by zero.
+    if scale == 0:
+        scale = 1.0
+    train_z, test_z = (train_x - center) / scale, (test_x - center) / scale
+    design = np.column_stack((np.ones_like(train_z), train_z, train_z**2))
+    coefficients, *_ = np.linalg.lstsq(design, train_y, rcond=None)
+    predictions = np.column_stack((np.ones_like(test_z), test_z, test_z**2)) @ coefficients
+    return predictions, {"center": center, "scale": scale}
+
+
+def _competence_time_loso(rows: list[dict]) -> dict:
+    """Hold out every rate/checkpoint of one seed and pool observation errors."""
+    seeds = sorted({row["seed"] for row in rows})
+    folds = []
+    competence_sse, step_sse, observations = 0.0, 0.0, 0
+    for seed in seeds:
+        train = [row for row in rows if row["seed"] != seed]
+        test = [row for row in rows if row["seed"] == seed]
+        train_y = np.asarray([row["component_posterior_r2"] for row in train])
+        test_y = np.asarray([row["component_posterior_r2"] for row in test])
+        competence_prediction, competence_scaling = _competence_time_quadratic(
+            np.asarray([row["competence"] for row in train]), train_y,
+            np.asarray([row["competence"] for row in test]),
+        )
+        step_prediction, step_scaling = _competence_time_quadratic(
+            np.log1p([row["step"] for row in train]), train_y,
+            np.log1p([row["step"] for row in test]),
+        )
+        competence_error = float(np.sum((test_y - competence_prediction) ** 2))
+        step_error = float(np.sum((test_y - step_prediction) ** 2))
+        if not np.isfinite([competence_error, step_error]).all():
+            raise ValueError("non-finite LOSO squared errors")
+        competence_sse += competence_error
+        step_sse += step_error
+        observations += len(test)
+        folds.append({
+            "held_out_seed": seed,
+            "training_seeds": [other for other in seeds if other != seed],
+            "training_cells": len(train), "test_cells": len(test),
+            "competence_mse": competence_error / len(test),
+            "step_mse": step_error / len(test),
+            "scaling": {"competence": competence_scaling, "log_step": step_scaling},
+        })
+    competence_mse, step_mse = competence_sse / observations, step_sse / observations
+    return {
+        "observations": observations,
+        "competence_loso_mse": competence_mse,
+        "log_step_loso_mse": step_mse,
+        # Null denotes an undefined ratio (a perfect clock model cannot lose).
+        "competence_to_step_mse_ratio": competence_mse / step_mse if step_mse > 0 else None,
+        "competence_fold_wins": sum(fold["competence_mse"] < fold["step_mse"] for fold in folds),
+        "folds": folds,
+    }
+
+
+def analyze_competence_time(config: dict, training: list[dict], probes: list[dict]) -> dict:
+    """Apply PROTOCOL.md's post-initialization decision without mutating raw data.
+
+    Invalid raw grids return an auditable inconclusive summary. Configuration
+    errors raise before raw-data validation, so they cannot masquerade as data.
+    """
+    experiment = config["competence_time"]
+    thresholds = experiment["thresholds"]
+    seeds = sorted(int(seed) for seed in experiment["seeds"])
+    rates = sorted(float(rate) for rate in experiment["learning_rates"])
+    steps = sorted(int(step) for step in experiment["primary_checkpoints"])
+    if (
+        len(seeds) < 2 or len(rates) < 2 or not steps or min(steps) <= 0
+        or set(steps) != {int(step) for step in config["train"]["checkpoint_steps"] if int(step) > 0}
+        or experiment["primary_site"] != "block_2"
+        or experiment["primary_target"] != "component_posterior"
+    ):
+        raise ValueError("invalid competence-time primary analysis configuration")
+    for key in (
+        "max_shuffled_component_posterior_r2", "competence_to_step_mse_ratio",
+        "minimum_competence_fold_wins", "minimum_rate_dissociation_seeds",
+        "minimum_rate_competence_difference",
+    ):
+        if not np.isfinite(float(thresholds[key])):
+            raise ValueError(f"non-finite competence-time threshold: {key}")
+    # Validate rate configuration before catching failures in user-supplied rows.
+    for rate in rates:
+        _rate_config(config, rate)
+    result = {
+        "record_type": "competence_time_summary",
+        "base_config_sha256": config_digest(config),
+        "target": "block_2_component_posterior_r2",
+        "validation": "leave_one_seed_out", "selection": "step > 0",
+        "primary_checkpoints": steps, "thresholds": copy.deepcopy(thresholds),
+        "verdict": "inconclusive", "validity_failures": [],
+        "primary": None, "rate_dissociation": None,
+        "excluded_initialization_count": None,
+    }
+    try:
+        for row in [*training, *probes]:
+            if not isinstance(row, dict):
+                raise ValueError("competence-time raw rows must be objects")
+            if any(float(row[key]) != int(row[key]) for key in ("seed", "step")):
+                raise ValueError("competence-time seed and step must be integers")
+        # Exact comparison: int(0.5) must not turn overlap into zero.
+        if any(float(row.get("probe_sequence_overlap", -1)) != 0 for row in probes):
+            result["validity_failures"].append("probe_leakage")
+            raise ValueError("competence-time probe records contain sequence overlap")
+        validate_competence_time_grid(config, training, probes)
+    except (ValueError, TypeError, KeyError, OverflowError) as error:
+        if not result["validity_failures"]:
+            result["validity_failures"].append("invalid_grid")
+        result["grid_error"] = f"{type(error).__name__}: {error}"
+        return result
+
+    cells = {
+        (int(row["seed"]), float(row["learning_rate"]), int(row["step"])): row
+        for row in training
+    }
+    result["excluded_initialization_count"] = sum(int(row["step"]) == 0 for row in training)
+    primary_probes = [row for row in probes if row["site"] == "block_2" and int(row["step"]) in steps]
+    max_shuffled = max(abs(float(row["component_posterior_r2"])) for row in primary_probes
+                       if row["control"] == "shuffled_labels")
+    result["max_abs_shuffled_component_r2"] = max_shuffled
+    result["shuffled_control_valid"] = max_shuffled <= thresholds["max_shuffled_component_posterior_r2"]
+    if not result["shuffled_control_valid"]:
+        result["validity_failures"].append("shuffled_labels")
+
+    differences = [{
+        "seed": seed,
+        "max_competence_difference": max(
+            abs(float(cells[seed, rates[-1], step]["competence"])
+                - float(cells[seed, rates[0], step]["competence"])) for step in steps
+        ),
+    } for seed in seeds]
+    passing = [row["seed"] for row in differences if row["max_competence_difference"]
+               >= thresholds["minimum_rate_competence_difference"]]
+    result["rate_dissociation"] = {
+        "slowest_rate": rates[0], "fastest_rate": rates[-1],
+        "per_seed": differences, "passing_seeds": passing,
+        "valid": len(passing) >= thresholds["minimum_rate_dissociation_seeds"],
+    }
+    if not result["rate_dissociation"]["valid"]:
+        result["validity_failures"].append("rate_dissociation")
+    rows = [{
+        "seed": int(row["seed"]), "step": int(row["step"]),
+        "competence": float(cells[int(row["seed"]), float(row["learning_rate"]), int(row["step"])]["competence"]),
+        "component_posterior_r2": float(row["component_posterior_r2"]),
+    } for row in primary_probes if row["control"] == "none"]
+    try:
+        result["primary"] = _competence_time_loso(rows)
+    except (ValueError, np.linalg.LinAlgError) as error:
+        result["validity_failures"].append("nonfinite_analysis")
+        result["analysis_error"] = str(error)
+        return result
+    if not result["validity_failures"]:
+        primary = result["primary"]
+        ratio = primary["competence_to_step_mse_ratio"]
+        supported = (ratio is not None and ratio < thresholds["competence_to_step_mse_ratio"]
+                     and primary["competence_fold_wins"] >= thresholds["minimum_competence_fold_wins"])
+        result["verdict"] = "supported" if supported else "falsified"
+    return result
