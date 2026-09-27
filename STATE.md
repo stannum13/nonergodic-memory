@@ -29,7 +29,7 @@ Do not weaken the failed global criterion. The next smallest falsification is a 
 This is a new preregistered confirmation experiment, not a revision of the
 completed v1.0 threshold loop above. The complete protocol, configuration,
 implementation, tests, and audit-figure code were locked at commit
-`69130b8fe7b02601dc41f8b1622d8b7740f209cd` (`69130b8`) before any confirmation
+`667d96213ff1140bd624276febfac9180c3fb3be` (`667d962`) before any confirmation
 data generation. Its base configuration digest, calculated with the
 repository's `config_digest(load_config(...))`, is `f75dd20f93eb8827`.
 
