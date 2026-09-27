@@ -1,10 +1,12 @@
 """Post-result safeguards; all generated data stay in pytest temporary paths."""
 
 import copy
+import math
 from argparse import Namespace
 from pathlib import Path
 
 import pytest
+import torch
 
 import mess3_competence_time as cli
 from nonergodic_memory.experiment import write_jsonl
@@ -33,6 +35,14 @@ def _prepare_cli(monkeypatch, config, args):
     monkeypatch.setattr(cli, "load_config", lambda _: config)
 
 
+def _canonical_paths(training, probes, root):
+    for row in [*training, *probes]:
+        row["checkpoint_path"] = str(competence_time_checkpoint_path(
+            root, row["seed"], row["learning_rate"], row["step"]
+        ))
+        row["learning_rate_label"] = cli._rate_label(row["learning_rate"])
+
+
 @pytest.mark.parametrize("mode", ["train", "probe", "all"])
 @pytest.mark.parametrize("output", ["training", "probe", "summary"])
 @pytest.mark.parametrize("corruption", ["digest", "identity"])
@@ -41,6 +51,7 @@ def test_preflight_rejects_existing_output_before_side_effects(
 ):
     config, training, probes = _synthetic_analysis_grid()
     args = _args(tmp_path, mode)
+    _canonical_paths(training, probes, args.checkpoint_dir)
     _prepare_cli(monkeypatch, config, args)
     row = copy.deepcopy({
         "training": training[0], "probe": probes[0],
@@ -109,6 +120,7 @@ def test_completed_trajectory_is_persisted_and_reused_after_interruption(tmp_pat
 def test_preflight_rejects_incompatible_raw_identity(tmp_path, monkeypatch, output, corruption):
     config, training, probes = _synthetic_analysis_grid()
     args = _args(tmp_path, "train")
+    _canonical_paths(training, probes, args.checkpoint_dir)
     _prepare_cli(monkeypatch, config, args)
     row = copy.deepcopy(training[0] if output == "training" else probes[0])
     row["checkpoint_path"] = str(competence_time_checkpoint_path(
@@ -141,13 +153,25 @@ def test_preflight_rejects_incompatible_raw_identity(tmp_path, monkeypatch, outp
 def test_analysis_replaces_stale_summary_with_inconclusive(tmp_path, monkeypatch, mode, failure):
     config, training, probes = _synthetic_analysis_grid()
     args = _args(tmp_path, mode)
-    for row in [*training, *probes]:
-        row["checkpoint_path"] = str(competence_time_checkpoint_path(
-            args.checkpoint_dir, row["seed"], row["learning_rate"], row["step"]
-        ))
+    _canonical_paths(training, probes, args.checkpoint_dir)
     _prepare_cli(monkeypatch, config, args)
     stale = analyze_competence_time(config, training, probes)
     assert stale["verdict"] == "supported"
+    write_jsonl(args.training_results, training)
+    assert cli._training_records_complete(
+        args.training_results, config, args.seeds or config["competence_time"]["seeds"],
+        config["competence_time"]["learning_rates"], args.checkpoint_dir,
+    )
+    # Real cache-valid checkpoint identities isolate the NaN record-cache failure.
+    for row in training:
+        checkpoint = Path(row["checkpoint_path"])
+        checkpoint.parent.mkdir(parents=True, exist_ok=True)
+        torch.save({
+            "config": cli._rate_config(config, row["learning_rate"]),
+            "seed": row["seed"], "step": row["step"], "condition": "fresh",
+        }, checkpoint)
+    checkpoint_bytes = {row["checkpoint_path"]: Path(row["checkpoint_path"]).read_bytes()
+                        for row in training}
     if failure == "nonfinite_training":
         training[-1]["nll"] = float("nan")
     elif failure == "nonfinite_probe":
@@ -157,10 +181,19 @@ def test_analysis_replaces_stale_summary_with_inconclusive(tmp_path, monkeypatch
     write_jsonl(args.training_results, training)
     write_jsonl(args.probe_results, probes)
     write_jsonl(args.summary_results, [stale])
-    # Isolate the orchestration of analysis in all mode from training/probe work.
-    monkeypatch.setattr(cli, "_checkpoint_cache_complete", lambda *_: True)
-    monkeypatch.setattr(cli, "_training_records_complete", lambda *_: True)
-    monkeypatch.setattr(cli, "run_competence_time_probes", lambda *_: probes)
+    originals = {path: path.read_bytes() for path in (args.training_results, args.probe_results)}
+    validate_competence_time_grid(config, training, probes, validate_science=False)
+    if failure == "nonfinite_training":
+        assert not cli._training_records_complete(
+            args.training_results, config, config["competence_time"]["seeds"],
+            config["competence_time"]["learning_rates"], args.checkpoint_dir,
+        )
+
+    def producer_must_not_run(*_):
+        pytest.fail("complete invalid raw evidence must not be regenerated")
+
+    monkeypatch.setattr(cli, "run_competence_time_training", producer_must_not_run)
+    monkeypatch.setattr(cli, "run_competence_time_probes", producer_must_not_run)
     try:
         cli.main()
     except (SystemExit, ValueError):
@@ -169,6 +202,56 @@ def test_analysis_replaces_stale_summary_with_inconclusive(tmp_path, monkeypatch
     saved = cli._read_jsonl(args.summary_results)[0]
     assert saved == analyze_competence_time(config, training, probes)
     assert saved["verdict"] == "inconclusive"
+    assert saved["validity_failures"] == ["probe_leakage" if failure == "leakage" else "invalid_grid"]
+    for path, original in originals.items():
+        assert path.read_bytes() == original
+    for path, original in checkpoint_bytes.items():
+        assert Path(path).read_bytes() == original
+    if failure == "nonfinite_training":
+        assert math.isnan(cli._read_jsonl(args.training_results)[-1]["nll"])
+
+
+@pytest.mark.parametrize("missing", ["training_cell", "probe_file"])
+def test_all_mode_repairs_incomplete_raw_work(tmp_path, monkeypatch, missing):
+    config = _tiny_competence_time_config()
+    registered, _, _ = _synthetic_analysis_grid()
+    config["competence_time"].update({
+        "primary_site": "block_2", "primary_target": "component_posterior",
+        "primary_checkpoints": [2],
+        "thresholds": registered["competence_time"]["thresholds"],
+    })
+    args = _args(tmp_path, "all")
+    _prepare_cli(monkeypatch, config, args)
+    seeds = config["competence_time"]["seeds"]
+    rates = config["competence_time"]["learning_rates"]
+    training = cli.run_competence_time_training(config, seeds, rates, args.checkpoint_dir)
+    probes = cli.run_competence_time_probes(config, seeds, rates, args.checkpoint_dir)
+    write_jsonl(args.training_results, training[:-1] if missing == "training_cell" else training)
+    if missing != "probe_file":
+        write_jsonl(args.probe_results, probes)
+    real_train, real_probe = cli.run_competence_time_training, cli.run_competence_time_probes
+    trained = []
+    probed = []
+
+    def train(*arguments):
+        trained.append((arguments[1], arguments[2]))
+        return real_train(*arguments)
+
+    def probe(*arguments):
+        probed.append(True)
+        return real_probe(*arguments)
+
+    monkeypatch.setattr(cli, "run_competence_time_training", train)
+    monkeypatch.setattr(cli, "run_competence_time_probes", probe)
+    cli.main()
+    assert len(trained) == (1 if missing == "training_cell" else 0)
+    assert len(probed) == 1
+    repaired_training = cli._read_jsonl(args.training_results)
+    repaired_probes = cli._read_jsonl(args.probe_results)
+    validate_competence_time_grid(config, repaired_training, repaired_probes)
+    assert cli._read_jsonl(args.summary_results) == [
+        analyze_competence_time(config, repaired_training, repaired_probes)
+    ]
 
 
 @pytest.mark.parametrize("field", ["verdict", "ratio", "folds"])

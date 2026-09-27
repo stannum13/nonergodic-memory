@@ -193,7 +193,7 @@ def _selected_grid(config: dict, args: argparse.Namespace) -> tuple[list[int], l
     return [int(seed) for seed in seeds], [float(rate) for rate in rates]
 
 
-def _preflight_outputs(config: dict, args: argparse.Namespace) -> None:
+def _preflight_outputs(config: dict, args: argparse.Namespace) -> tuple[list[dict], list[dict]]:
     """Reject incompatible existing outputs before touching any checkpoint."""
     try:
         training, probes = [
@@ -218,6 +218,7 @@ def _preflight_outputs(config: dict, args: argparse.Namespace) -> None:
                 raise ValueError("summary has incompatible identity or provenance")
     except (ValueError, TypeError, KeyError, OverflowError) as error:
         raise SystemExit(f"competence-time existing outputs are incompatible: {error}") from error
+    return training, probes
 
 
 def main() -> None:
@@ -226,10 +227,23 @@ def main() -> None:
     seeds, learning_rates = _selected_grid(config, args)
     checkpoint_root = Path(args.checkpoint_dir)
 
+    preserve_invalid_grid = False
     if args.mode in {"train", "probe", "all"}:
-        _preflight_outputs(config, args)
+        training, probes = _preflight_outputs(config, args)
+        if args.mode == "all":
+            try:
+                validate_competence_time_grid(config, training, probes, validate_science=False)
+            except ValueError:
+                # Compatible but incomplete work still needs cache recovery.
+                pass
+            else:
+                preserve_invalid_grid = bool(
+                    analyze_competence_time(config, training, probes)["validity_failures"]
+                )
+                if preserve_invalid_grid:
+                    print("preserving complete raw grid with scientific validity failures")
 
-    if args.mode in {"train", "all"}:
+    if args.mode in {"train", "all"} and not preserve_invalid_grid:
         training_path = Path(args.training_results)
         written = 0
         reused = 0
@@ -253,7 +267,7 @@ def main() -> None:
         if reused:
             print(f"reused {reused} complete competence-time training cells")
 
-    if args.mode in {"probe", "all"}:
+    if args.mode in {"probe", "all"} and not preserve_invalid_grid:
         if not _checkpoint_cache_complete(config, seeds, learning_rates, checkpoint_root):
             raise SystemExit("competence-time checkpoint set is incomplete or incompatible")
         rows = run_competence_time_probes(config, seeds, learning_rates, checkpoint_root)
