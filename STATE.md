@@ -24,6 +24,23 @@ The proposed global competence threshold is falsified as specified. Across initi
 
 Do not weaken the failed global criterion. The next smallest falsification is a new-seed preregistered two-regime analysis: treat initialization as a distinct categorical regime and compare competence versus step only among post-initialization checkpoints, using a model family fixed before examining new seeds. No additional training should begin until that specification is committed.
 
+## Competence–time dissociation: implementation lock
+
+This is a new preregistered confirmation experiment, not a revision of the
+completed v1.0 threshold loop above. The complete protocol, configuration,
+implementation, tests, and audit-figure code were locked at commit
+`69130b8fe7b02601dc41f8b1622d8b7740f209cd` (`69130b8`) before any confirmation
+data generation. Its base configuration digest, calculated with the
+repository's `config_digest(load_config(...))`, is `f75dd20f93eb8827`.
+
+The prospective grid is seeds 30–37 across the four preregistered learning
+rates. At the lock, the repository tree contained no
+`checkpoints/mess3_competence_time/` checkpoint, no
+`results/mess3_competence_time_{training,probes,summary}.jsonl` result row, and
+no `figures/mess3_competence_time_{learning,loso}.png` figure. This lock does
+not alter the v1.0 result: v1.0 remains falsified as recorded above. The new
+experiment has no generated confirmation data or verdict yet.
+
 ## Registered Mess3 geometry-threshold prediction
 
 Registered before creating any `checkpoints/mess3_threshold/`, `results/mess3_threshold_*.jsonl`, or `figures/mess3_threshold_*.png` artifact. Configuration digest `d2423ea9f3b44075` uses confirmation seeds 20–24, learning rates 0.003 and 0.0015, fresh vectorized samples, and checkpoints 0/384/768/1,152/1,536/2,304/3,072. Same-seed rate conditions share initialization, the seed-indexed fresh batch at every step, held-out evaluation data, probe-fit data, and probe-test data.

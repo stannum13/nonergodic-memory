@@ -59,11 +59,11 @@ separately where practical.
 
 ## Task 6: Lock the implementation before data generation
 
-- [ ] Run the complete test suite: `pytest -q`.
-- [ ] Run repository smoke checks: `make smoke`.
-- [ ] Commit the implementation and protocol, then push the experiment branch.
-- [ ] Record the lock commit and configuration digest in `STATE.md`.
-- [ ] Confirm that no seed 30–37 checkpoint, result row, or figure exists before
+- [x] Run the complete test suite: `pytest -q`.
+- [x] Run repository smoke checks: `make smoke`.
+- [x] Commit the implementation and protocol, then push the experiment branch.
+- [x] Record the lock commit and configuration digest in `STATE.md`.
+- [x] Confirm that no seed 30–37 checkpoint, result row, or figure exists before
   the lock commit.
 
 ## Task 7: Execute and report without changing the rules
