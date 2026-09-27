@@ -15,13 +15,13 @@ separately where practical.
 
 ## Task 2: Add isolated training and probe storage
 
-- [ ] Add `src/nonergodic_memory/mess3_competence_time.py`.
-- [ ] Reuse the tested Mess3 trainer and evaluator without modifying the v1.0
+- [x] Add `src/nonergodic_memory/mess3_competence_time.py`.
+- [x] Reuse the tested Mess3 trainer and evaluator without modifying the v1.0
   threshold result schema or paths.
-- [ ] Store checkpoints below `checkpoints/mess3_competence_time/` and include
+- [x] Store checkpoints below `checkpoints/mess3_competence_time/` and include
   rate, seed, step, base digest, rate digest, and sampler in every raw row.
-- [ ] Test same-seed paired initialization, complete keys, and digest rejection.
-- [ ] Run: `pytest -q tests/test_mess3_competence_time.py -k 'training or grid'`.
+- [x] Test same-seed paired initialization, complete keys, and digest rejection.
+- [x] Run: `pytest -q tests/test_mess3_competence_time.py -k 'training or grid'`.
 
 ## Task 3: Implement the frozen confirmatory analysis
 
