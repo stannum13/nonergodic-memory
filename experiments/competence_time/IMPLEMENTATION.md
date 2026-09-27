@@ -25,16 +25,16 @@ separately where practical.
 
 ## Task 3: Implement the frozen confirmatory analysis
 
-- [ ] Exclude step 0 before either model is fitted.
-- [ ] Fit quadratic competence-only and log-step-only models with scaling learned
+- [x] Exclude step 0 before either model is fitted.
+- [x] Fit quadratic competence-only and log-step-only models with scaling learned
   inside each training fold.
-- [ ] Hold out all four rate trajectories of one seed per fold.
-- [ ] Aggregate squared error by observations and count per-seed fold wins.
-- [ ] Implement the `supported`, `falsified`, and `inconclusive` state machine
+- [x] Hold out all four rate trajectories of one seed per fold.
+- [x] Aggregate squared error by observations and count per-seed fold wins.
+- [x] Implement the `supported`, `falsified`, and `inconclusive` state machine
   exactly as specified in `PROTOCOL.md`.
-- [ ] Add synthetic tests for support, falsification, shuffled-control failure,
+- [x] Add synthetic tests for support, falsification, shuffled-control failure,
   incomplete/non-finite grids, leakage, and failed rate dissociation.
-- [ ] Run: `pytest -q tests/test_mess3_competence_time.py -k analysis`.
+- [x] Run: `pytest -q tests/test_mess3_competence_time.py -k analysis`.
 
 ## Task 4: Add a resumable command and Make target
 
