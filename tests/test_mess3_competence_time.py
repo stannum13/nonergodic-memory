@@ -2,6 +2,7 @@ from pathlib import Path
 
 import copy
 
+import matplotlib.pyplot as plt
 import numpy as np
 import pytest
 import torch
@@ -14,6 +15,9 @@ from nonergodic_memory.mess3_competence_time import (
     run_competence_time_probes,
     run_competence_time_training,
     validate_competence_time_grid,
+)
+from nonergodic_memory.mess3_competence_time_figures import (
+    generate_competence_time_figures,
 )
 
 
@@ -227,6 +231,32 @@ def _analyze(config: dict, training: list[dict], probes: list[dict]) -> dict:
     analyze = getattr(mess3_competence_time, "analyze_competence_time", None)
     assert callable(analyze), "the preregistered analysis API is missing"
     return analyze(config, training, probes)
+
+
+def test_competence_time_figures_are_auditable_raw_grid_renderings(tmp_path: Path) -> None:
+    """Both preregistered figures render nonblank pixels from complete raw rows."""
+    config, training, probes = _synthetic_analysis_grid()
+    summary = _analyze(config, training, probes)
+
+    paths = generate_competence_time_figures(config, training, probes, summary, tmp_path)
+
+    assert {path.name for path in paths} == {
+        "mess3_competence_time_learning.png",
+        "mess3_competence_time_loso.png",
+    }
+    for path in paths:
+        pixels = plt.imread(path)
+        assert pixels.size > 0
+        assert np.any(pixels[..., :3] < 0.98)
+
+
+def test_competence_time_figures_reject_summary_with_wrong_digest(tmp_path: Path) -> None:
+    config, training, probes = _synthetic_analysis_grid()
+    summary = _analyze(config, training, probes)
+    summary["base_config_sha256"] = "not-the-raw-grid-digest"
+
+    with pytest.raises(ValueError, match="summary.*provenance"):
+        generate_competence_time_figures(config, training, probes, summary, tmp_path)
 
 
 def test_analysis_support_and_grouped_training_only_scaling() -> None:
