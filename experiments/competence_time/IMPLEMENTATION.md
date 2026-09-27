@@ -6,12 +6,12 @@ separately where practical.
 
 ## Task 1: Freeze the prospective configuration
 
-- [ ] Add `configs/mess3_competence_time.yaml` with exactly the model, data,
+- [x] Add `configs/mess3_competence_time.yaml` with exactly the model, data,
   seeds, rates, checkpoints, controls, and thresholds in `PROTOCOL.md`.
-- [ ] Add a test asserting that the checked-in configuration matches the
+- [x] Add a test asserting that the checked-in configuration matches the
   preregistered grid and excludes seeds 20–24.
-- [ ] Record and expose the base configuration digest.
-- [ ] Run: `pytest -q tests/test_mess3_competence_time.py -k config`.
+- [x] Record and expose the base configuration digest.
+- [x] Run: `pytest -q tests/test_mess3_competence_time.py -k config`.
 
 ## Task 2: Add isolated training and probe storage
 
@@ -75,4 +75,3 @@ separately where practical.
 - [ ] Report negative and inconclusive outcomes as such; do not tune thresholds,
   discard seeds, or reclassify secondary analyses as confirmatory.
 - [ ] Run `pytest -q && make smoke` and commit the result artifacts.
-
