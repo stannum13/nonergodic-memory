@@ -7,6 +7,7 @@ import torch
 
 from nonergodic_memory.experiment import config_digest, load_config
 from nonergodic_memory.mess3_competence_time import (
+    _rate_config,
     competence_time_checkpoint_path,
     run_competence_time_probes,
     run_competence_time_training,
@@ -56,6 +57,7 @@ def test_competence_time_config_matches_preregistered_grid_and_lock() -> None:
         "weight_decay": 0.01,
         "checkpoint_steps": [0, 384, 768, 1152, 1536, 2048, 2560, 3072, 4096],
     }
+    assert config["diagnosis"] == {"window": 8}
     assert config["probe"] == {"train_sequences": 1024, "test_sequences": 512}
     assert config["competence_time"] == {
         "seeds": [30, 31, 32, 33, 34, 35, 36, 37],
@@ -78,7 +80,15 @@ def test_competence_time_config_matches_preregistered_grid_and_lock() -> None:
         },
     }
     assert not set(config["competence_time"]["seeds"]).intersection(range(20, 25))
-    assert config_digest(config) == "a9dae90d3049c220"
+    assert config_digest(config) == "f75dd20f93eb8827"
+
+
+def test_competence_time_rate_config_requires_locked_diagnosis_window() -> None:
+    config = _tiny_competence_time_config()
+    del config["diagnosis"]
+
+    with pytest.raises(KeyError, match="diagnosis"):
+        _rate_config(config, 0.01)
 
 
 def test_competence_time_training_pairs_same_seed_initialization_and_covers_grid(

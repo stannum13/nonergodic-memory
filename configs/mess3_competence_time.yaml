@@ -14,6 +14,8 @@ train:
   learning_rate: 0.003
   weight_decay: 0.01
   checkpoint_steps: [0, 384, 768, 1152, 1536, 2048, 2560, 3072, 4096]
+diagnosis:
+  window: 8
 probe:
   train_sequences: 1024
   test_sequences: 512

@@ -20,10 +20,9 @@ def _rate_label(learning_rate: float) -> str:
 def _rate_config(config: dict, learning_rate: float) -> dict:
     selected = copy.deepcopy(config)
     selected["train"]["learning_rate"] = float(learning_rate)
-    # The shared diagnostic utility needs this fixed, pre-existing evaluation
-    # setting.  It is not an experiment manipulation and is deliberately not
-    # added to the locked competence--time configuration.
-    selected.setdefault("diagnosis", {}).setdefault("window", 8)
+    # The shared diagnostic utility consumes this explicitly locked value.
+    if int(selected["diagnosis"]["window"]) < 1:
+        raise ValueError("diagnosis window must be positive")
     return selected
 
 

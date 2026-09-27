@@ -4,6 +4,15 @@ Status: **preregistered design; no confirmation data generated**
 Parent release: [`v1.0`](https://github.com/stannum13/nonergodic-memory/releases/tag/v1.0)  
 Branch: `experiment/competence-time-dissociation`
 
+## Pre-data amendment — 2026-09-27
+
+**Explicit diagnostic window.** The competence evaluation position window
+inherited from v1.0 (`diagnosis.window: 8`) was omitted from the initial YAML.
+It is now frozen explicitly in `configs/mess3_competence_time.yaml` and is
+included in its configuration digest. No seed 30–37 checkpoint, raw result,
+or figure existed when this amendment was made. This is a documentation and
+configuration-lock correction, not a change to the planned evaluation window.
+
 ## Why this experiment exists
 
 The v1.0 threshold experiment asked whether predictive competence explains the
@@ -208,4 +217,3 @@ success criterion and cannot rescue a failed primary prediction.
 - `figures/mess3_competence_time_learning.png`
 - `figures/mess3_competence_time_loso.png`
 - a result section appended to this directory after the frozen analysis runs
-
