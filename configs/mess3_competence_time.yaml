@@ -1,0 +1,36 @@
+data:
+  generator: mess3
+  sampler: vectorized
+  sequence_length: 64
+  train_sequences: 2048
+  test_sequences: 256
+model:
+  width: 32
+  layers: 2
+  heads: 4
+  max_length: 128
+train:
+  batch_size: 64
+  learning_rate: 0.003
+  weight_decay: 0.01
+  checkpoint_steps: [0, 384, 768, 1152, 1536, 2048, 2560, 3072, 4096]
+probe:
+  train_sequences: 1024
+  test_sequences: 512
+competence_time:
+  seeds: [30, 31, 32, 33, 34, 35, 36, 37]
+  learning_rates: [0.00075, 0.0015, 0.003, 0.006]
+  primary_site: block_2
+  primary_target: component_posterior
+  primary_checkpoints: [384, 768, 1152, 1536, 2048, 2560, 3072, 4096]
+  controls:
+    shuffled_labels: true
+    untrained_step: 0
+    seed_grouped_loso: true
+    require_zero_probe_overlap: true
+  thresholds:
+    max_shuffled_component_posterior_r2: 0.02
+    competence_to_step_mse_ratio: 0.80
+    minimum_competence_fold_wins: 7
+    minimum_rate_dissociation_seeds: 6
+    minimum_rate_competence_difference: 0.10
