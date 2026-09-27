@@ -206,7 +206,8 @@ def _synthetic_analysis_grid(kind: str = "competence") -> tuple[dict, list[dict]
                     "base_config_sha256": config_digest(config),
                     "rate_config_sha256": digest, "config_sha256": digest,
                     "sampler": "vectorized",
-                    "checkpoint_path": f"synthetic/lr_{rate}/seed{seed}_step{step}.pt",
+                    "checkpoint_path": str(competence_time_checkpoint_path("synthetic", seed, rate, step)),
+                    "condition": "fresh",
                 }
                 training.append({
                     **common, "record_type": "competence_time_training",

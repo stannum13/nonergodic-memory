@@ -12,7 +12,11 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from .experiment import config_digest
-from .mess3_competence_time import _competence_time_quadratic, validate_competence_time_grid
+from .mess3_competence_time import (
+    _competence_time_quadratic,
+    analyze_competence_time,
+    validate_competence_time_grid,
+)
 
 
 def _save(fig: plt.Figure, path: Path, *, title_space: float = 0.96) -> Path:
@@ -36,6 +40,8 @@ def _validate_summary(config: dict, training: list[dict], probes: list[dict], su
     primary = summary.get("primary")
     if not isinstance(primary, dict) or not isinstance(primary.get("folds"), list):
         raise ValueError("competence-time summary has no plottable LOSO result")
+    if summary != analyze_competence_time(config, training, probes):
+        raise ValueError("competence-time summary does not match analysis of raw rows")
 
 
 def _primary_rows(config: dict, training: list[dict], probes: list[dict]) -> list[dict]:

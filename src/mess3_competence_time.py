@@ -193,15 +193,45 @@ def _selected_grid(config: dict, args: argparse.Namespace) -> tuple[list[int], l
     return [int(seed) for seed in seeds], [float(rate) for rate in rates]
 
 
+def _preflight_outputs(config: dict, args: argparse.Namespace) -> None:
+    """Reject incompatible existing outputs before touching any checkpoint."""
+    try:
+        training, probes = [
+            _read_jsonl(path) if Path(path).exists() else []
+            for path in (args.training_results, args.probe_results)
+        ]
+        validate_competence_time_grid(
+            config, training, probes, require_complete=False, validate_science=False
+        )
+        for row in [*training, *probes]:
+            expected = competence_time_checkpoint_path(
+                args.checkpoint_dir, int(row["seed"]), float(row["learning_rate"]), int(row["step"])
+            )
+            if row.get("checkpoint_path") != str(expected):
+                raise ValueError("raw checkpoint path has incompatible identity or root")
+        if Path(args.summary_results).exists():
+            summaries = _read_jsonl(args.summary_results)
+            if len(summaries) != 1 or (
+                summaries[0].get("record_type") != "competence_time_summary"
+                or summaries[0].get("base_config_sha256") != config_digest(config)
+            ):
+                raise ValueError("summary has incompatible identity or provenance")
+    except (ValueError, TypeError, KeyError, OverflowError) as error:
+        raise SystemExit(f"competence-time existing outputs are incompatible: {error}") from error
+
+
 def main() -> None:
     args = parse_args()
     config = load_config(args.config)
     seeds, learning_rates = _selected_grid(config, args)
     checkpoint_root = Path(args.checkpoint_dir)
 
+    if args.mode in {"train", "probe", "all"}:
+        _preflight_outputs(config, args)
+
     if args.mode in {"train", "all"}:
         training_path = Path(args.training_results)
-        rows: list[dict] = []
+        written = 0
         reused = 0
         for seed in seeds:
             for rate in learning_rates:
@@ -212,13 +242,13 @@ def main() -> None:
                 if cached and recorded:
                     reused += 1
                 else:
-                    rows.extend(run_competence_time_training(config, [seed], [rate], checkpoint_root))
-        if rows:
-            _replace_records(
-                training_path,
-                rows,
-                ("base_config_sha256", "seed", "learning_rate", "step"),
-            )
+                    rows = run_competence_time_training(config, [seed], [rate], checkpoint_root)
+                    _replace_records(
+                        training_path, rows,
+                        ("base_config_sha256", "seed", "learning_rate", "step"),
+                    )
+                    written += 1
+        if written:
             print("wrote competence-time training records")
         if reused:
             print(f"reused {reused} complete competence-time training cells")
@@ -238,8 +268,8 @@ def main() -> None:
         training = _load_raw_rows(args.training_results, "training")
         probes = _load_raw_rows(args.probe_results, "probe")
         try:
-            validate_competence_time_grid(config, training, probes)
-        except (ValueError, TypeError, KeyError) as error:
+            validate_competence_time_grid(config, training, probes, validate_science=False)
+        except (ValueError, TypeError, KeyError, OverflowError) as error:
             raise SystemExit(f"competence-time raw grid is incomplete or incompatible: {error}") from error
         write_jsonl(args.summary_results, [analyze_competence_time(config, training, probes)])
         print("wrote competence-time summary")

@@ -165,3 +165,20 @@ real 11.83
 user 9.81
 sys 1.15
 ```
+
+## Post-result maintenance
+
+After freezing this result at `9f3c264`, maintenance added output-compatibility
+checks before checkpoint writes, atomic persistence of each completed
+rate–seed trajectory, and checks for fresh-condition canonical training paths.
+The CLI now lets the existing analyzer record scientific validity failures
+as inconclusive, and figure generation checks the supplied summary against
+analysis recomputed from raw rows. These safeguards do not change the
+registered decision rules or the frozen result. The three retained JSONLs,
+both figures, configuration, protocol, and v1.0 artifacts remain unchanged;
+reanalysis still reproduces the complete saved summary exactly.
+
+Maintenance verification: 100 focused tests passed, the full suite passed
+212 tests, and `make smoke` exited successfully. Its two smoke JSONL rewrites
+were restored. SHA-256 checks for all three frozen JSONLs and both figures
+match their pre-maintenance values.

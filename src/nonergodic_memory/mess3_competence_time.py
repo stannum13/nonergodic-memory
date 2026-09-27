@@ -119,10 +119,19 @@ def validate_competence_time_grid(
     config: dict,
     training: list[dict],
     probes: list[dict],
+    *,
+    require_complete: bool = True,
+    validate_science: bool = True,
 ) -> None:
-    """Reject incomplete or incompatible raw experiment cells before analysis."""
+    """Check identity and structure, optionally requiring a complete, valid grid.
+
+    Partial structural validation supports preflight before resumable writes.
+    Analysis orchestration leaves scientific failures to the frozen analyzer.
+    """
     base_digest = config_digest(config)
     all_rows = [*training, *probes]
+    if any(not isinstance(row, dict) for row in all_rows):
+        raise ValueError("competence-time raw rows must be objects")
     if any(row.get("base_config_sha256") != base_digest for row in all_rows):
         raise ValueError("competence-time records have incompatible provenance")
     seeds = {int(seed) for seed in config["competence_time"]["seeds"]}
@@ -150,10 +159,24 @@ def validate_competence_time_grid(
         ):
             raise ValueError(f"competence-time {label} records have incompatible identity")
         for row in rows:
+            if any(float(row[key]) != int(row[key]) for key in ("seed", "step")):
+                raise ValueError("competence-time seed and step must be integers")
             rate = float(row["learning_rate"])
             digest = rate_digests.get(rate)
             if row.get("rate_config_sha256") != digest or row.get("config_sha256") != digest:
                 raise ValueError("competence-time records have incompatible rate provenance")
+            if label == "training":
+                if row.get("condition") != "fresh":
+                    raise ValueError("competence-time training condition must be fresh")
+                checkpoint = row.get("checkpoint_path")
+                if not isinstance(checkpoint, str) or not checkpoint:
+                    raise ValueError("competence-time training checkpoint path is missing")
+                path = Path(checkpoint)
+                expected = competence_time_checkpoint_path(
+                    path.parent.parent, int(row["seed"]), rate, int(row["step"])
+                )
+                if checkpoint != str(expected):
+                    raise ValueError("competence-time training checkpoint path has incompatible identity")
 
     expected_training = {(seed, rate, step) for seed in seeds for rate in rates for step in steps}
     training_keys = [
@@ -161,14 +184,10 @@ def validate_competence_time_grid(
     ]
     if any(count > 1 for count in Counter(training_keys).values()):
         raise ValueError("duplicate competence-time training cells")
-    if set(training_keys) != expected_training:
-        raise ValueError("competence-time training grid is incomplete or contains unexpected cells")
-    training_metrics = ("competence", "kl_exact", "nll", "uniform_kl")
-    if any(
-        not all(np.isfinite(float(row.get(metric, float("nan")))) for metric in training_metrics)
-        for row in training
+    if not set(training_keys) <= expected_training or (
+        require_complete and set(training_keys) != expected_training
     ):
-        raise ValueError("competence-time training records contain non-finite metrics")
+        raise ValueError("competence-time training grid is incomplete or contains unexpected cells")
 
     sites = [
         *(f"block_{depth + 1}" for depth in range(int(config["model"]["layers"]))),
@@ -192,8 +211,18 @@ def validate_competence_time_grid(
     ]
     if any(count > 1 for count in Counter(probe_keys).values()):
         raise ValueError("duplicate competence-time probe cells")
-    if set(probe_keys) != expected_probes:
+    if not set(probe_keys) <= expected_probes or (
+        require_complete and set(probe_keys) != expected_probes
+    ):
         raise ValueError("competence-time probe grid is incomplete or contains unexpected cells")
+    if not validate_science:
+        return
+    training_metrics = ("competence", "kl_exact", "nll", "uniform_kl")
+    if any(
+        not all(np.isfinite(float(row.get(metric, float("nan")))) for metric in training_metrics)
+        for row in training
+    ):
+        raise ValueError("competence-time training records contain non-finite metrics")
     if any(int(row.get("probe_sequence_overlap", -1)) != 0 for row in probes):
         raise ValueError("competence-time probe records contain sequence overlap")
     probe_metrics = (

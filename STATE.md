@@ -85,6 +85,12 @@ grid. It does not establish causal use or generalization across architectures.
 The earlier v1.0 all-checkpoint prediction remains falsified; no secondary
 analysis rescues or revises it.
 
+Post-result maintenance after `9f3c264` hardens output compatibility,
+interruption recovery, invalid-data summary handling, and figure/raw-data
+consistency. It leaves the registered decision rules and all frozen result
+artifacts unchanged; see the post-result maintenance note in
+[RESULTS.md](experiments/competence_time/RESULTS.md).
+
 ## Registered Mess3 geometry-threshold prediction
 
 Registered before creating any `checkpoints/mess3_threshold/`, `results/mess3_threshold_*.jsonl`, or `figures/mess3_threshold_*.png` artifact. Configuration digest `d2423ea9f3b44075` uses confirmation seeds 20–24, learning rates 0.003 and 0.0015, fresh vectorized samples, and checkpoints 0/384/768/1,152/1,536/2,304/3,072. Same-seed rate conditions share initialization, the seed-indexed fresh batch at every step, held-out evaluation data, probe-fit data, and probe-test data.
