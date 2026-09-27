@@ -15,6 +15,7 @@ import torch
 from nonergodic_memory.experiment import config_digest, load_config, write_jsonl
 from nonergodic_memory.mess3_competence_time import (
     _rate_config,
+    _rate_label,
     analyze_competence_time,
     competence_time_checkpoint_path,
     run_competence_time_probes,
@@ -61,6 +62,8 @@ def _checkpoint_cache_complete(
                     payload = torch.load(path, map_location="cpu", weights_only=False)
                 except Exception:
                     return False
+                if not isinstance(payload, dict):
+                    return False
                 if (
                     payload.get("config") != rate_config
                     or payload.get("seed") != int(seed)
@@ -81,18 +84,23 @@ def _read_jsonl(path: str | Path) -> list[dict]:
     return rows
 
 
-def _training_record_valid(config: dict, row: dict) -> bool:
+def _training_record_valid(config: dict, row: dict, checkpoint_root: Path) -> bool:
     try:
         rate = float(row["learning_rate"])
+        seed, step = int(row["seed"]), int(row["step"])
         expected_digest = config_digest(_rate_config(config, rate))
+        expected_path = competence_time_checkpoint_path(checkpoint_root, seed, rate, step)
         return (
             row.get("record_type") == "competence_time_training"
             and row.get("base_config_sha256") == config_digest(config)
             and row.get("rate_config_sha256") == expected_digest
             and row.get("config_sha256") == expected_digest
             and row.get("sampler") == "vectorized"
-            and int(row["seed"]) == row["seed"]
-            and int(row["step"]) == row["step"]
+            and row.get("learning_rate_label") == _rate_label(rate)
+            and row.get("condition") == "fresh"
+            and seed == row["seed"]
+            and step == row["step"]
+            and row.get("checkpoint_path") == str(expected_path)
             and all(
                 math.isfinite(float(row[metric]))
                 for metric in ("competence", "kl_exact", "nll", "uniform_kl")
@@ -103,7 +111,11 @@ def _training_record_valid(config: dict, row: dict) -> bool:
 
 
 def _training_records_complete(
-    path: str | Path, config: dict, seeds: Iterable[int], learning_rates: Iterable[float]
+    path: str | Path,
+    config: dict,
+    seeds: Iterable[int],
+    learning_rates: Iterable[float],
+    checkpoint_root: Path,
 ) -> bool:
     """Require one valid result row for every selected training checkpoint."""
     source = Path(path)
@@ -113,7 +125,7 @@ def _training_records_complete(
         rows = _read_jsonl(source)
     except ValueError:
         return False
-    if any(not _training_record_valid(config, row) for row in rows):
+    if any(not _training_record_valid(config, row, checkpoint_root) for row in rows):
         return False
     try:
         counts = Counter(
@@ -150,14 +162,15 @@ def _replace_records(path: str | Path, records: Iterable[dict], key_fields: tupl
         except KeyError as error:
             raise ValueError(f"record is missing key field {error.args[0]}") from error
 
-    compatible = [row for row in existing if row.get("base_config_sha256") == base_digest]
-    if any(row.get("record_type") != record_type for row in compatible):
+    if any(row.get("base_config_sha256") != base_digest for row in existing):
+        raise ValueError("existing JSONL contains incompatible base digest")
+    if any(row.get("record_type") != record_type for row in existing):
         raise ValueError("existing JSONL contains incompatible record types")
-    for label, rows in (("existing", compatible), ("replacement", new_rows)):
+    for label, rows in (("existing", existing), ("replacement", new_rows)):
         if any(count != 1 for count in Counter(key(row) for row in rows).values()):
             raise ValueError(f"duplicate {label} competence-time cells")
     replacement_keys = {key(row) for row in new_rows}
-    retained = [row for row in compatible if key(row) not in replacement_keys]
+    retained = [row for row in existing if key(row) not in replacement_keys]
     temporary = destination.with_suffix(destination.suffix + ".tmp")
     write_jsonl(temporary, [*retained, *new_rows])
     temporary.replace(destination)
@@ -193,7 +206,9 @@ def main() -> None:
         for seed in seeds:
             for rate in learning_rates:
                 cached = _checkpoint_cache_complete(config, [seed], [rate], checkpoint_root)
-                recorded = _training_records_complete(training_path, config, [seed], [rate])
+                recorded = _training_records_complete(
+                    training_path, config, [seed], [rate], checkpoint_root
+                )
                 if cached and recorded:
                     reused += 1
                 else:

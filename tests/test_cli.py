@@ -8,9 +8,14 @@ import torch
 import yaml
 
 from nonergodic_memory.figures import _load_records, generate_figures
-from nonergodic_memory.experiment import load_config, train_one
+from nonergodic_memory.experiment import config_digest, load_config, train_one
+from nonergodic_memory.mess3_competence_time import _rate_config, competence_time_checkpoint_path
 from mess3_diagnose import _replace_keyed_jsonl, _training_results_complete
-from mess3_competence_time import _checkpoint_cache_complete
+from mess3_competence_time import (
+    _checkpoint_cache_complete,
+    _replace_records,
+    _training_records_complete as _competence_time_training_records_complete,
+)
 from mess3_threshold import _training_records_complete
 
 
@@ -272,7 +277,7 @@ def test_competence_time_cli_reuses_complete_tiny_grid_without_duplicate_rows(
         "diagnosis": {"window": 3},
         "probe": {"train_sequences": 24, "test_sequences": 16},
         "competence_time": {
-            "seeds": [30, 31],
+            "seeds": [6, 7],
             "learning_rates": [0.01, 0.005],
             "primary_site": "block_2",
             "primary_target": "component_posterior",
@@ -307,7 +312,7 @@ def test_competence_time_cli_reuses_complete_tiny_grid_without_duplicate_rows(
         [*base, "--mode", "train"], env=environment, capture_output=True, text=True, check=False
     )
     assert train.returncode == 0, train.stderr
-    first_checkpoint = checkpoint_dir / "lr_0p01/transformer_seed30_fresh_step2.pt"
+    first_checkpoint = checkpoint_dir / "lr_0p01/transformer_seed6_fresh_step2.pt"
     first_mtime = first_checkpoint.stat().st_mtime_ns
     assert len(training_path.read_text().splitlines()) == 2 * 2 * 2
 
@@ -354,6 +359,76 @@ def test_competence_time_checkpoint_cache_requires_full_identity(
     payload[field] = value
     torch.save(payload, checkpoint)
     assert not _checkpoint_cache_complete(config, [30], [0.01], tmp_path)
+
+
+def test_competence_time_checkpoint_cache_treats_non_mapping_payload_as_miss(
+    tmp_path: Path,
+) -> None:
+    config = {"train": {"learning_rate": 0.01, "checkpoint_steps": [0]}, "diagnosis": {"window": 1}}
+    checkpoint = tmp_path / "lr_0p01" / "transformer_seed30_fresh_step0.pt"
+    checkpoint.parent.mkdir()
+    torch.save(["not", "a", "checkpoint"], checkpoint)
+
+    assert not _checkpoint_cache_complete(config, [30], [0.01], tmp_path)
+
+
+def _competence_time_training_row(config: dict, root: Path, **changes: object) -> dict:
+    rate, seed, step = 0.01, 6, 0
+    rate_config = _rate_config(config, rate)
+    row = {
+        "record_type": "competence_time_training",
+        "base_config_sha256": config_digest(config),
+        "rate_config_sha256": config_digest(rate_config),
+        "config_sha256": config_digest(rate_config),
+        "sampler": "vectorized",
+        "learning_rate": rate,
+        "learning_rate_label": "0p01",
+        "seed": seed,
+        "condition": "fresh",
+        "step": step,
+        "checkpoint_path": str(competence_time_checkpoint_path(root, seed, rate, step)),
+        "competence": 0.1,
+        "kl_exact": 0.9,
+        "nll": 1.0,
+        "uniform_kl": 1.1,
+    }
+    return {**row, **changes}
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"condition": "reused"},
+        {"checkpoint_path": "checkpoints/wrong.pt"},
+        {"checkpoint_path": None},
+    ],
+)
+def test_competence_time_training_cache_rejects_wrong_condition_or_path(
+    tmp_path: Path, changes: dict[str, object]
+) -> None:
+    config = {
+        "train": {"learning_rate": 0.01, "checkpoint_steps": [0]},
+        "diagnosis": {"window": 1},
+        "competence_time": {"seeds": [6], "learning_rates": [0.01]},
+    }
+    path = tmp_path / "training.jsonl"
+    path.write_text(json.dumps(_competence_time_training_row(config, tmp_path, **changes)) + "\n")
+
+    assert not _competence_time_training_records_complete(path, config, [6], [0.01], tmp_path)
+
+
+def test_competence_time_replacement_rejects_incompatible_base_digest(tmp_path: Path) -> None:
+    config = {
+        "train": {"learning_rate": 0.01, "checkpoint_steps": [0]},
+        "diagnosis": {"window": 1},
+        "competence_time": {"seeds": [6], "learning_rates": [0.01]},
+    }
+    path = tmp_path / "training.jsonl"
+    valid = _competence_time_training_row(config, tmp_path)
+    path.write_text(json.dumps({**valid, "base_config_sha256": "incompatible"}) + "\n")
+
+    with pytest.raises(ValueError, match="incompatible base digest"):
+        _replace_records(path, [valid], ("base_config_sha256", "seed", "learning_rate", "step"))
 
 
 def test_mess3_diagnosis_cli_writes_complete_tiny_grid(tmp_path: Path) -> None:
