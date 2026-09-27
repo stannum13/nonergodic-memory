@@ -4,11 +4,13 @@ import subprocess
 import sys
 from pathlib import Path
 import pytest
+import torch
 import yaml
 
 from nonergodic_memory.figures import _load_records, generate_figures
 from nonergodic_memory.experiment import load_config, train_one
 from mess3_diagnose import _replace_keyed_jsonl, _training_results_complete
+from mess3_competence_time import _checkpoint_cache_complete
 from mess3_threshold import _training_records_complete
 
 
@@ -149,6 +151,7 @@ def test_entrypoints_have_help() -> None:
         "context_restart.py",
         "mess3_diagnose.py",
         "mess3_threshold.py",
+        "mess3_competence_time.py",
     ):
         completed = subprocess.run(
             [sys.executable, str(ROOT / "src" / script), "--help"],
@@ -245,6 +248,112 @@ def test_mess3_threshold_cli_writes_and_preserves_tiny_grid(tmp_path: Path) -> N
     assert rerun.returncode == 0, rerun.stderr
     assert len(training_path.read_text().splitlines()) == 2 * 2 * 2
     assert len(probe_path.read_text().splitlines()) == 2 * 2 * 2 * 3 * 2
+
+
+def test_competence_time_cli_reuses_complete_tiny_grid_without_duplicate_rows(
+    tmp_path: Path,
+) -> None:
+    """The new experiment resumes only exact checkpoint/result identities."""
+    config = {
+        "data": {
+            "generator": "mess3",
+            "sampler": "vectorized",
+            "sequence_length": 8,
+            "train_sequences": 16,
+            "test_sequences": 8,
+        },
+        "model": {"width": 8, "layers": 2, "heads": 2, "max_length": 16},
+        "train": {
+            "batch_size": 4,
+            "learning_rate": 0.01,
+            "weight_decay": 0.01,
+            "checkpoint_steps": [0, 2],
+        },
+        "diagnosis": {"window": 3},
+        "probe": {"train_sequences": 24, "test_sequences": 16},
+        "competence_time": {
+            "seeds": [30, 31],
+            "learning_rates": [0.01, 0.005],
+            "primary_site": "block_2",
+            "primary_target": "component_posterior",
+            "primary_checkpoints": [2],
+            "thresholds": {
+                "max_shuffled_component_posterior_r2": 0.02,
+                "competence_to_step_mse_ratio": 0.8,
+                "minimum_competence_fold_wins": 2,
+                "minimum_rate_dissociation_seeds": 2,
+                "minimum_rate_competence_difference": 0.1,
+            },
+        },
+    }
+    config_path = tmp_path / "competence_time.yaml"
+    config_path.write_text(yaml.safe_dump(config))
+    training_path = tmp_path / "training.jsonl"
+    probe_path = tmp_path / "probes.jsonl"
+    summary_path = tmp_path / "summary.jsonl"
+    checkpoint_dir = tmp_path / "checkpoints"
+    base = [
+        sys.executable,
+        str(ROOT / "src/mess3_competence_time.py"),
+        "--config", str(config_path),
+        "--checkpoint-dir", str(checkpoint_dir),
+        "--training-results", str(training_path),
+        "--probe-results", str(probe_path),
+        "--summary-results", str(summary_path),
+    ]
+    environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+
+    train = subprocess.run(
+        [*base, "--mode", "train"], env=environment, capture_output=True, text=True, check=False
+    )
+    assert train.returncode == 0, train.stderr
+    first_checkpoint = checkpoint_dir / "lr_0p01/transformer_seed30_fresh_step2.pt"
+    first_mtime = first_checkpoint.stat().st_mtime_ns
+    assert len(training_path.read_text().splitlines()) == 2 * 2 * 2
+
+    rerun = subprocess.run(
+        [*base, "--mode", "train"], env=environment, capture_output=True, text=True, check=False
+    )
+    assert rerun.returncode == 0, rerun.stderr
+    assert "reused 4 complete competence-time training cells" in rerun.stdout
+    assert first_checkpoint.stat().st_mtime_ns == first_mtime
+    assert len(training_path.read_text().splitlines()) == 2 * 2 * 2
+
+    probe = subprocess.run(
+        [*base, "--mode", "probe"], env=environment, capture_output=True, text=True, check=False
+    )
+    assert probe.returncode == 0, probe.stderr
+    assert len(probe_path.read_text().splitlines()) == 2 * 2 * 2 * 3 * 2
+    analyze = subprocess.run(
+        [*base, "--mode", "analyze"], env=environment, capture_output=True, text=True, check=False
+    )
+    assert analyze.returncode == 0, analyze.stderr
+    summary = [json.loads(line) for line in summary_path.read_text().splitlines()]
+    assert len(summary) == 1
+    assert summary[0]["record_type"] == "competence_time_summary"
+
+
+@pytest.mark.parametrize(
+    "field, value",
+    [
+        ("config", {"train": {"learning_rate": 9.0}, "diagnosis": {"window": 1}}),
+        ("seed", 31),
+        ("condition", "reused"),
+        ("step", 3),
+    ],
+)
+def test_competence_time_checkpoint_cache_requires_full_identity(
+    tmp_path: Path, field: str, value: object
+) -> None:
+    config = {"train": {"learning_rate": 0.01, "checkpoint_steps": [0]}, "diagnosis": {"window": 1}}
+    checkpoint = tmp_path / "lr_0p01" / "transformer_seed30_fresh_step0.pt"
+    checkpoint.parent.mkdir()
+    payload = {"config": config, "seed": 30, "condition": "fresh", "step": 0}
+    torch.save(payload, checkpoint)
+    assert _checkpoint_cache_complete(config, [30], [0.01], tmp_path)
+    payload[field] = value
+    torch.save(payload, checkpoint)
+    assert not _checkpoint_cache_complete(config, [30], [0.01], tmp_path)
 
 
 def test_mess3_diagnosis_cli_writes_complete_tiny_grid(tmp_path: Path) -> None:
