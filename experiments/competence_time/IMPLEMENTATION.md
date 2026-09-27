@@ -49,13 +49,13 @@ separately where practical.
 
 ## Task 5: Generate auditable figures from raw rows
 
-- [ ] Add `src/nonergodic_memory/mess3_competence_time_figures.py`.
-- [ ] Figure 1: competence and component geometry versus step, faceted by rate,
+- [x] Add `src/nonergodic_memory/mess3_competence_time_figures.py`.
+- [x] Figure 1: competence and component geometry versus step, faceted by rate,
   with step 0 visually separated.
-- [ ] Figure 2: held-out predictions and per-seed competence-versus-step MSE,
+- [x] Figure 2: held-out predictions and per-seed competence-versus-step MSE,
   including the aggregate ratio and final verdict.
-- [ ] Validate the complete raw grid and matching summary digest before plotting.
-- [ ] Test file creation, nonempty pixels, and rejection of mismatched summaries.
+- [x] Validate the complete raw grid and matching summary digest before plotting.
+- [x] Test file creation, nonempty pixels, and rejection of mismatched summaries.
 
 ## Task 6: Lock the implementation before data generation
 
