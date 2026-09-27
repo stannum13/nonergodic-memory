@@ -38,14 +38,14 @@ separately where practical.
 
 ## Task 4: Add a resumable command and Make target
 
-- [ ] Add `src/mess3_competence_time.py` with `train`, `probe`, `analyze`,
+- [x] Add `src/mess3_competence_time.py` with `train`, `probe`, `analyze`,
   `figures`, and `all` modes.
-- [ ] Cache only checkpoints whose full configuration, seed, condition, and step
+- [x] Cache only checkpoints whose full configuration, seed, condition, and step
   match; reject partial or incompatible JSONL grids.
-- [ ] Add `scripts/mess3_competence_time.sh` and `make competence-time`.
-- [ ] Test a tiny end-to-end grid, including a second invocation that reuses
+- [x] Add `scripts/mess3_competence_time.sh` and `make competence-time`.
+- [x] Test a tiny end-to-end grid, including a second invocation that reuses
   valid cells without duplicating rows.
-- [ ] Run: `pytest -q tests/test_mess3_competence_time.py tests/test_cli.py`.
+- [x] Run: `pytest -q tests/test_mess3_competence_time.py tests/test_cli.py`.
 
 ## Task 5: Generate auditable figures from raw rows
 
