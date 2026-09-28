@@ -91,6 +91,34 @@ consistency. It leaves the registered decision rules and all frozen result
 artifacts unchanged; see the post-result maintenance note in
 [RESULTS.md](experiments/competence_time/RESULTS.md).
 
+## Rate-aware clock external validation: configuration lock
+
+This is a separately preregistered external validation on new seeds 40–47,
+not a revision of the completed competence–time verdict. The pre-data primary
+hypothesis is that the frozen quadratic rate-aware clock
+`log1p(learning_rate * step)` forecasts post-initialization normal-control
+block-2 component-posterior R² better than the frozen quadratic predictive
+competence forecast: aggregate clock/competence MSE must be strictly below
+0.80 and the clock must have lower MSE in at least 7/8 seeds. All validity
+conditions, including the 0.02 shuffled-label bound, a 0.10 rate-dissociation
+in at least six seeds, and frozen forecast-support bounds, are fixed before
+any confirmation data are generated.
+
+The configuration digest is `59f938bbff48f300`. Its competence and rate-aware
+forecast constants, centers, scales, coefficients, and support ranges are
+frozen from retained seeds 30–37, rates 0.00075/0.0015/0.003/0.006, and
+post-initialization steps 384/768/1152/1536/2048/2560/3072/4096. Provenance is
+locked to training JSONL SHA-256
+`2c90e72389db3a98e0c1196fffaf6bdf24f3492009460bfbe0c99f417315420f` and probe
+JSONL SHA-256
+`9a7aa242f267bddc2064c8ddf93c3163891167630d7dd3f0ea4e603993e3abd3`; neither
+forecast may be refit or selected using confirmation geometry.
+
+At this configuration lock, no checkpoint, training/probe/audit/summary JSONL
+record, or figure exists for the rate-aware-clock experiment, and no seed
+40–47 data have been generated. The later implementation-lock commit and its
+independent audit must be recorded before any confirmation execution.
+
 ## Registered Mess3 geometry-threshold prediction
 
 Registered before creating any `checkpoints/mess3_threshold/`, `results/mess3_threshold_*.jsonl`, or `figures/mess3_threshold_*.png` artifact. Configuration digest `d2423ea9f3b44075` uses confirmation seeds 20–24, learning rates 0.003 and 0.0015, fresh vectorized samples, and checkpoints 0/384/768/1,152/1,536/2,304/3,072. Same-seed rate conditions share initialization, the seed-indexed fresh batch at every step, held-out evaluation data, probe-fit data, and probe-test data.
