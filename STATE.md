@@ -295,3 +295,19 @@ counterfactual operators, distributed-prefix actuator, persistent rollout,
 controls, evidence validator, and figures. Then run the single registered command
 on CPU. If either development seed misses any gate, stop as actuator infeasible
 without searching another intervention.
+
+## Predictive-memory implementation lock
+
+**Locked 2026-09-28 before any result-bearing checkpoint evaluation.** The
+configuration digest is `7b076ce5a049c176`. Independent theory, causal, and
+methods audits blocked the first draft before execution. Their findings were
+resolved by adding full latent-path oracle enumeration, a five-direction
+pseudoinverse rank/construction-residual gate, signed norm-matched random
+controls, exact-grid and finite-evidence validation, strict parent-checkpoint and
+configuration locks, atomic evidence snapshots, an exclusive attempt ledger, a
+full-command external 60-minute watchdog, and explicit held-out calibration and
+status rules. The dated clarification is public in
+`experiments/predictive_memory/PROTOCOL.md`. No `predictive_memory` result,
+summary, attempt record, or figure existed at this lock. The next action is a
+second independent implementation audit; only an approval permits the one
+registered `make predictive-memory` run.

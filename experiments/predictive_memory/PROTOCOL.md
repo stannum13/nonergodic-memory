@@ -37,7 +37,7 @@ w_\lambda(0)=1-w_\lambda(1),
 \]
 
 and \(q_\lambda(c,s)=w_\lambda(c)r(s\mid c)\). Thus the edit changes
-component identity while exactly preserving both normalized within-component
+the component posterior while exactly preserving both normalized within-component
 state posteriors. Primary doses are \(\lambda=\pm\log 2\), which double or halve
 the posterior odds. Dose zero is an identity check.
 
@@ -67,10 +67,12 @@ Models are the existing width-32, two-block, learning-rate 0.003 Mess3
 transformers. No network is trained for this pilot. The intervention captures
 the complete 32-position activation tensor after block 1, flattens its
 \(32\times32=1024\) coordinates, and fits a `StandardScaler` plus ridge
-regression (fixed \(\alpha=1\)) from activations to five independent joint-belief
-coordinates. The minimum standardized-norm activation displacement that realizes
-the requested decoded belief displacement is computed with a fixed pseudoinverse
-cutoff of \(10^{-3}\).
+regression (fixed \(\alpha=1\)) from activations to the first five
+component-major joint-belief coordinates; the sixth is inferred by normalization.
+The minimum standardized-norm activation displacement that realizes the requested
+decoded displacement is computed with a fixed pseudoinverse cutoff of
+\(10^{-3}\). This is a diagonal-covariance metric induced by feature
+standardization, not a full-covariance Mahalanobis metric.
 
 The edited block-1 prefix is passed through block 2. For every possible appended
 token \(a\), block 1 is run on the original prefix plus \(a\); the first 32
@@ -82,8 +84,9 @@ which is an explicit limitation.
 
 ## Data boundaries
 
-All synthetic sets are fresh, deterministic Mess3 samples with length 33 or 34
-as needed. They are disjoint by both RNG seed namespace and exact token sequence.
+All synthetic sets are fresh, deterministic length-32 Mess3 prefixes. The three
+possible 33rd tokens are enumerated during evaluation. Sets are disjoint by both
+RNG seed namespace and exact prefix.
 
 - Development model seeds: 10 and 11, existing fresh step-0 and step-3072
   checkpoints from `configs/mess3_diagnosis.yaml`.
@@ -104,11 +107,16 @@ step 3072:
 
 1. held-out whole-prefix component-posterior \(R^2\ge0.20\);
 2. held-out five-coordinate joint-belief \(R^2\ge0.50\);
-3. independent-decoder relative displacement error \(\le0.50\);
-4. analytic conditional-response denominator \(\ge10^{-6}\);
-5. the 95th percentile intervention RMS is no larger than the 95th percentile
+3. the frozen pseudoinverse retains all five decoder directions and its ratio of
+   summed squared construction residual to summed squared requested displacement
+   is at most \(10^{-10}\);
+4. independent-decoder relative displacement error (ratio of summed squared
+   errors to summed squared requests, maximized over doses) is \(\le0.50\);
+5. mean per-prefix analytic conditional-response denominator, minimized over
+   doses, is \(\ge10^{-6}\);
+6. the 95th percentile intervention RMS is no larger than the 95th percentile
    natural standardized RMS distance from the actuator-fit mean;
-6. all records are finite, dose zero reconstructs baseline probabilities within
+7. all records are finite, dose zero reconstructs baseline probabilities within
    \(10^{-6}\), exact operators agree with direct enumeration within \(10^{-10}\),
    and all split-overlap counts are zero.
 
@@ -133,6 +141,26 @@ control mean and shuffled mean by at least 0.10. Otherwise it is falsified or
 inconclusive according to the registered validity checks. With five seeds this
 rule is descriptive and underpowered; no population-level claim is made.
 
+The fixed random direction reverses sign with the registered signed dose and is
+matched to the learned edit's norm in standardized feature coordinates. For each
+seed and control, prefix-and-dose numerators and denominators are pooled before
+forming \(S\). Each random direction is pooled separately and the eight scores
+are averaged. Model seeds then receive equal weight.
+
+## Pre-data implementation clarification (2026-09-28)
+
+This clarification was added after independent code audit and before any
+registered checkpoint was evaluated or any `predictive_memory` result existed.
+All five trained held-out checkpoints must pass the same feasibility and
+numerical gates after both development checkpoints pass and before any held-out
+evaluation split is opened. Failure maps to `invalid_pilot`; development failure
+maps to `actuator_infeasible`; complete valid evidence below the behavioral rule
+maps to `criterion_not_met`; a pass maps to `promising_pilot`; timeout or an
+execution/integrity failure maps to an explicit inconclusive terminal status.
+The 0.20 threshold denotes partial response alignment, not near-exact Bayesian
+implementation. Exact grids, finite evidence, positive denominators, and
+agreement between per-prefix contributions and aggregate scores are mandatory.
+
 ## Execution and stopping rule
 
 One public command will run validation, development gates, the frozen held-out
@@ -142,4 +170,3 @@ substitution if the cap is reached. Existing checkpoints are inputs and their
 SHA-256 hashes are recorded. Implementation tests and an independent audit occur
 before the result-bearing command. No pilot result may be deleted or overwritten
 after inspection; corrections require an append-only erratum and a new protocol.
-

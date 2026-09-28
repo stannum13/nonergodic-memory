@@ -21,6 +21,8 @@ data:
 gates:
   component_r2_min: 0.20
   joint_r2_min: 0.50
+  actuator_rank_min: 5
+  actuator_constraint_relative_error_max: 0.0000000001
   displacement_relative_error_max: 0.50
   oracle_denominator_min: 0.000001
   identity_atol: 0.000001
@@ -29,4 +31,3 @@ decision:
   mean_score_min: 0.20
   control_margin_min: 0.10
   require_all_heldout_positive: true
-
