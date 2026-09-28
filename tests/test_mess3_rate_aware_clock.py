@@ -645,6 +645,50 @@ def test_rate_aware_figures_reject_malformed_audit_even_with_fresh_inconclusive_
     assert not (tmp_path / "figures").exists()
 
 
+def test_rate_aware_figures_reject_matching_summary_with_provenance_failure(tmp_path, monkeypatch):
+    figures = _figure_api()
+    fixture = _synthetic_analysis_grid()
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    def unavailable(*args, **kwargs):
+        raise ValueError("frozen source provenance verification failed")
+    monkeypatch.setattr(module, "verify_forecast_provenance", unavailable)
+    summary = _analyze(fixture)
+    assert summary["validity_failures"] == ["forecast_provenance"]
+    monkeypatch.setattr(figures.plt, "subplots", lambda *a, **k: pytest.fail("failed provenance reached plotting"))
+    with pytest.raises(ValueError, match="provenance"):
+        figures.generate_rate_aware_clock_figures(*fixture, summary, tmp_path / "figures")
+    assert not (tmp_path / "figures").exists()
+
+
+@pytest.mark.parametrize("change", ["false_for_float", "true_for_integer", "integer_for_boolean"])
+def test_rate_aware_figures_summary_comparison_preserves_json_types(tmp_path, monkeypatch, change):
+    figures = _figure_api()
+    fixture = _synthetic_analysis_grid()
+    if change == "true_for_integer":
+        competence = _synthetic_analysis_grid("competence")
+        for row, other in zip(fixture[2], competence[2]):
+            if row["seed"] != 40:
+                row["component_posterior_r2"] = other["component_posterior_r2"]
+    expected = _analyze(fixture)
+    summary = copy.deepcopy(expected)
+    if change == "false_for_float":
+        assert type(summary["primary"]["clock_mse"]) is float
+        assert summary["primary"]["clock_mse"] == 0.0
+        summary["primary"]["clock_mse"] = False
+    elif change == "true_for_integer":
+        assert type(summary["primary"]["clock_seed_wins"]) is int
+        assert summary["primary"]["clock_seed_wins"] == 1
+        summary["primary"]["clock_seed_wins"] = True
+    else:
+        assert summary["rate_dissociation"]["valid"] is True
+        summary["rate_dissociation"]["valid"] = 1
+    assert summary == expected  # Python equality loses the JSON type distinction.
+    monkeypatch.setattr(figures.plt, "subplots", lambda *a, **k: pytest.fail("type-tampered summary reached plotting"))
+    with pytest.raises(ValueError, match="summary"):
+        figures.generate_rate_aware_clock_figures(*fixture, summary, tmp_path / "figures")
+    assert not (tmp_path / "figures").exists()
+
+
 def test_analysis_supported_seed_equal_frozen_forecasts():
     fixture = _synthetic_analysis_grid()
     original = copy.deepcopy(fixture)

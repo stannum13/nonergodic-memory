@@ -118,6 +118,10 @@ def main() -> None:
         experiment = config["rate_aware_clock"]
         seeds, rates = _storage_selection(config, args.seeds or experiment["seeds"],
                                            args.learning_rates or experiment["learning_rates"])
+        if args.mode in ("all", "analyze", "figures", "audit") and (
+                set(seeds) != set(experiment["seeds"])
+                or set(rates) != set(experiment["learning_rates"])):
+            raise ValueError(f"{args.mode} requires the full configured seed/rate grid; use train/probe for subsets")
         rows = _preflight(config, args)
         complete = False
         try:

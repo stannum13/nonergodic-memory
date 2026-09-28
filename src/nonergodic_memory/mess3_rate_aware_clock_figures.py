@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import json
 from pathlib import Path
 
 import matplotlib
@@ -115,7 +116,16 @@ def generate_rate_aware_clock_figures(config, training, probes, audit, summary, 
             row["intersections"][key] = 0
     _validate_audit(config, audit_identity)
     expected = analyze_rate_aware_clock(config, training, probes, audit)
-    if not isinstance(summary, dict) or summary != expected:
+    integrity_failures = set(expected["validity_failures"]) & {"forecast_provenance", "invalid_grid", "initialization_pairing"}
+    if integrity_failures:
+        raise ValueError("rate-aware figure integrity/provenance failure: " + ", ".join(sorted(integrity_failures)))
+    try:
+        matches = isinstance(summary, dict) and (
+            json.dumps(summary, sort_keys=True, allow_nan=False, separators=(",", ":"))
+            == json.dumps(expected, sort_keys=True, allow_nan=False, separators=(",", ":")))
+    except (TypeError, ValueError) as error:
+        raise ValueError("rate-aware summary must contain valid finite JSON values") from error
+    if not matches:
         raise ValueError("rate-aware summary does not match fresh analysis of raw rows")
     if len(config["rate_aware_clock"]["seeds"]) > 8 or len(config["train"]["checkpoint_steps"]) < 2:
         raise ValueError("figures require at most eight seeds and a post-initialization checkpoint")

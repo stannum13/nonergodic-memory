@@ -45,6 +45,10 @@ def test_rate_aware_cli_all_twice_preserves_invalid_complete_grid(tmp_path, monk
     args = _rate_aware_cli_args(tmp_path)
     command = [sys.executable, str(ROOT / "src/mess3_rate_aware_clock.py"), *args, "--mode", "all"]
     environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    partial = subprocess.run([*command, "--seeds", "6"], env=environment, capture_output=True, text=True)
+    assert partial.returncode != 0, "partial all must fail before publishing a blocking summary"
+    assert not (tmp_path / "summary.jsonl").exists()
+    assert not (tmp_path / "checkpoints").exists()
     first = subprocess.run(command, env=environment, capture_output=True, text=True)
     assert first.returncode == 0, first.stderr
     for filename, count in (("training.jsonl", 8), ("probes.jsonl", 48),
@@ -125,7 +129,7 @@ def test_rate_aware_cli_checks_attempt_log_even_for_complete_grid(tmp_path, monk
 def test_rate_aware_cli_audit_is_atomic_full_seed_snapshot(tmp_path, monkeypatch):
     import mess3_rate_aware_clock as cli
     args = _rate_aware_cli_args(tmp_path)
-    monkeypatch.setattr(sys, "argv", ["rate-aware", *args, "--mode", "audit", "--seeds", "6"])
+    monkeypatch.setattr(sys, "argv", ["rate-aware", *args, "--mode", "audit"])
     cli.main()
     rows = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text().splitlines()]
     assert [row["seed"] for row in rows] == [6, 7]
@@ -133,6 +137,22 @@ def test_rate_aware_cli_audit_is_atomic_full_seed_snapshot(tmp_path, monkeypatch
     monkeypatch.setattr(cli, "audit_token_isolation", lambda *a, **k: pytest.fail("audit snapshot was regenerated"))
     cli.main()
     assert (tmp_path / "audit.jsonl").read_bytes() == previous
+
+
+@pytest.mark.parametrize("mode", ["all", "analyze", "figures", "audit"])
+@pytest.mark.parametrize("subset", [["--seeds", "6"], ["--learning-rates", "0.003"]])
+def test_rate_aware_cli_full_grid_modes_reject_subsets_before_side_effects(tmp_path, monkeypatch, mode, subset):
+    import mess3_rate_aware_clock as cli
+    args = _rate_aware_cli_args(tmp_path)
+    def unexpected(*args, **kwargs):
+        pytest.fail("partial full-grid mode reached production or publication")
+    for name in ("run_rate_aware_training", "run_rate_aware_probes", "audit_token_isolation",
+                 "atomic_write_rate_aware_jsonl"):
+        monkeypatch.setattr(cli, name, unexpected)
+    monkeypatch.setattr(sys, "argv", ["rate-aware", *args, "--mode", mode, *subset])
+    with pytest.raises(SystemExit, match="full configured"):
+        cli.main()
+    assert {path.name for path in tmp_path.iterdir()} == {"tiny.yaml"}
 
 
 def test_keyed_diagnosis_write_preserves_unselected_cells(tmp_path: Path) -> None:
