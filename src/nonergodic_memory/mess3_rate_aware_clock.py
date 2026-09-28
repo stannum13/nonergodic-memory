@@ -6,13 +6,20 @@ import hashlib
 import json
 import copy
 import re
+import os
+import tempfile
+import shutil
+from datetime import datetime, timezone
 from collections import Counter
 from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
+import torch
 
-from .experiment import config_digest
+from .experiment import config_digest, load_checkpoint, mixture_from_config
+from .mess3_competence_time import _enrich_record, _rate_config, _rate_label
+from .mess3_diagnosis import evaluate_checkpoint_geometry, sample_from_config, train_diagnostic
 
 
 # Independent of the caller's configuration and of the mutable YAML file.
@@ -124,7 +131,7 @@ def _integer(value) -> int:
     return int(value)
 
 
-def _validate_grid(config: dict, training: list[dict], probes: list[dict]) -> None:
+def _validate_grid(config: dict, training: list[dict], probes: list[dict], *, require_complete=True) -> None:
     experiment = config["rate_aware_clock"]
     expected = {(seed, rate, step) for seed in experiment["seeds"]
                 for rate in experiment["learning_rates"] for step in config["train"]["checkpoint_steps"]}
@@ -183,7 +190,8 @@ def _validate_grid(config: dict, training: list[dict], probes: list[dict]) -> No
                 if float(row.get("probe_sequence_overlap", -1)) != 0:
                     raise ValueError("probe sequence overlap")
                 keys.append((*cell, row["site"], row["control"]))
-        if any(count != 1 for count in Counter(keys).values()) or set(keys) != expected_cells:
+        if (any(count != 1 for count in Counter(keys).values()) or not set(keys) <= expected_cells
+                or (require_complete and set(keys) != expected_cells)):
             raise ValueError(f"missing, duplicate or unexpected {label} cells")
 
 
@@ -348,3 +356,321 @@ def analyze_rate_aware_clock(config, training, probes, audit) -> dict:
                      and scores["clock_seed_wins"] >= thresholds["minimum_clock_seed_wins"])
         result["verdict"] = "supported" if supported else "falsified"
     return result
+
+
+def rate_aware_checkpoint_path(root, seed, rate, step) -> Path:
+    """Canonical path within the rate-aware experiment's separate checkpoint tree."""
+    return Path(root) / f"lr_{_rate_label(rate)}" / f"transformer_seed{seed}_fresh_step{step}.pt"
+
+
+def read_rate_aware_jsonl(path) -> list[dict]:
+    """Read existing evidence strictly; absence is handled by the caller."""
+    try:
+        rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+    except (OSError, ValueError) as error:
+        raise ValueError(f"cannot read rate-aware evidence: {path}") from error
+    if any(not isinstance(row, dict) for row in rows):
+        raise ValueError("rate-aware evidence must contain JSON objects")
+    return rows
+
+
+def atomic_write_rate_aware_jsonl(path, rows) -> None:
+    """Publish one fully serialized snapshot with a same-directory atomic rename.
+
+    This low-level writer requires callers to preflight existing evidence first.
+    Serialization happens before directories or temporary files are created.
+    """
+    content = "".join(json.dumps(row, sort_keys=True, allow_nan=False) + "\n" for row in rows)
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    temporary = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", dir=destination.parent, prefix=".rate-aware-",
+                                         suffix=".tmp", delete=False) as handle:
+            temporary = Path(handle.name)
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        temporary.replace(destination)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def _parameter_identity(state) -> tuple[str, bool]:
+    """Hash sorted tensor names, dtype, shape and contiguous little-endian bytes."""
+    if not isinstance(state, Mapping) or not state:
+        raise ValueError("checkpoint has no state tensors")
+    digest = hashlib.sha256()
+    finite = True
+    for name in sorted(state):
+        tensor = state[name]
+        if not isinstance(name, str) or not isinstance(tensor, torch.Tensor):
+            raise ValueError("checkpoint state must contain named tensors")
+        array = tensor.detach().cpu().contiguous().numpy()
+        array = np.ascontiguousarray(array.astype(array.dtype.newbyteorder("<"), copy=False))
+        header = json.dumps([name, array.dtype.str, list(array.shape)], separators=(",", ":")).encode()
+        digest.update(len(header).to_bytes(8, "little"))
+        digest.update(header)
+        digest.update(array.tobytes(order="C"))
+        finite = finite and bool(np.isfinite(array).all())
+    return digest.hexdigest(), finite
+
+
+def _checked_checkpoint(config, root, seed, rate, step) -> dict:
+    path = rate_aware_checkpoint_path(root, seed, rate, step)
+    try:
+        payload, _ = load_checkpoint(path, _rate_config(config, rate), "transformer", seed)
+        if payload.get("condition") != "fresh" or _integer(payload.get("step")) != step:
+            raise ValueError("checkpoint condition or step mismatch")
+        digest, finite = _parameter_identity(payload["state_dict"])
+        if not finite:
+            raise ValueError("nonfinite checkpoint parameters")
+    except Exception as error:
+        raise ValueError(f"incompatible or invalid checkpoint {path}: {error}") from error
+    return {"parameter_sha256": digest, "parameters_finite": finite}
+
+
+def _storage_selection(config, seeds, rates):
+    seeds, rates = list(seeds), list(rates)
+    experiment = config["rate_aware_clock"]
+    steps = config["train"]["checkpoint_steps"]
+    if (config["data"].get("sampler") != "vectorized" or config["data"].get("generator") != "mess3"
+            or config["model"]["layers"] != 2):
+        raise ValueError("rate-aware storage requires vectorized Mess3 and two model blocks")
+    for section, names in (("data", ("sequence_length", "train_sequences", "test_sequences")),
+                            ("model", ("width", "heads", "max_length")),
+                            ("train", ("batch_size",)), ("probe", ("train_sequences", "test_sequences"))):
+        if any(_integer(config[section][name]) < 1 for name in names):
+            raise ValueError("model dimensions and dataset counts must be positive integers")
+    if (config["model"]["width"] % config["model"]["heads"]
+            or config["model"]["max_length"] < config["data"]["sequence_length"] - 1):
+        raise ValueError("invalid attention dimensions or maximum context length")
+    if not steps or steps != sorted(set(steps)) or steps[0] != 0 or any(_integer(s) < 0 for s in steps):
+        raise ValueError("checkpoint steps must be distinct sorted nonnegative integers including zero")
+    if (not seeds or len(seeds) != len(set(seeds)) or any(_integer(s) < 0 for s in seeds)
+            or not set(seeds) <= set(experiment["seeds"])):
+        raise ValueError("selected seeds must be distinct configured integers")
+    if (not rates or len(rates) != len(set(rates))
+            or any(isinstance(r, bool) or not isinstance(r, (int, float)) or not np.isfinite(r) or r <= 0 for r in rates)
+            or not set(rates) <= set(experiment["learning_rates"])):
+        raise ValueError("selected rates must be distinct configured positive numbers")
+    if not 1 <= config["diagnosis"]["window"] < config["data"]["sequence_length"]:
+        raise ValueError("invalid diagnosis window")
+    if set(seeds) & set(range(40, 48)):
+        if config_digest(config) != "59f938bbff48f300":
+            raise ValueError("confirmation seeds require the locked configuration")
+        verify_forecast_provenance(config, Path(__file__).resolve().parents[2])
+    return [int(seed) for seed in seeds], [float(rate) for rate in rates]
+
+
+def _validate_trajectory_rows(config, rows, kind, *, expected_trajectory=None):
+    try:
+        _validate_grid(config, rows if kind == "training" else [], rows if kind == "probe" else [],
+                       require_complete=False)
+    except (KeyError, TypeError, OverflowError) as error:
+        raise ValueError(f"invalid {kind} measurements: {error}") from error
+    steps = set(config["train"]["checkpoint_steps"])
+    groups = {(row["seed"], row["learning_rate"]) for row in rows}
+    if expected_trajectory is not None and groups != {expected_trajectory}:
+        raise ValueError("producer did not return the complete requested trajectory")
+    for seed, rate in groups:
+        selected = [row for row in rows if (row["seed"], row["learning_rate"]) == (seed, rate)]
+        if len(selected) != len(steps) * (6 if kind == "probe" else 1):
+            raise ValueError(f"partial {kind} trajectory; refusing to replace evidence")
+
+
+def preflight_rate_aware_outputs(config, checkpoint_root, *, training_path=None, probe_path=None,
+                                 audit_path=None, summary_path=None) -> dict:
+    """Validate every existing trajectory and checkpoint before any producer runs.
+
+    Missing files are permitted. Existing result trajectories must be complete;
+    corrupt, mismatched, nonfinite and partial evidence is never overwritten.
+    """
+    _storage_selection(config, config["rate_aware_clock"]["seeds"], config["rate_aware_clock"]["learning_rates"])
+    result = {name: read_rate_aware_jsonl(path) if path is not None and Path(path).exists() else []
+              for name, path in (("training", training_path), ("probe", probe_path),
+                                 ("audit", audit_path), ("summary", summary_path))}
+    log = Path(checkpoint_root) / "rate_aware_clock_attempts.jsonl"
+    attempts = read_rate_aware_jsonl(log) if log.exists() else []
+    for event in attempts:
+        if (event.get("record_type") != "rate_aware_clock_attempt"
+                or event.get("base_config_sha256") != config_digest(config)
+                or event.get("kind") not in ("training", "probe")
+                or event.get("status") not in ("started", "failed", "completed")
+                or event.get("seed") not in config["rate_aware_clock"]["seeds"]
+                or event.get("learning_rate") not in config["rate_aware_clock"]["learning_rates"]):
+            raise ValueError("incompatible attempt log")
+        if event.get("scientific_failure"):
+            raise ValueError("existing scientific failure must not be retried")
+    try:
+        for kind in ("training", "probe"):
+            _validate_trajectory_rows(config, result[kind], kind)
+        identities = {}
+        for seed in config["rate_aware_clock"]["seeds"]:
+            for rate in config["rate_aware_clock"]["learning_rates"]:
+                for step in config["train"]["checkpoint_steps"]:
+                    path = rate_aware_checkpoint_path(checkpoint_root, seed, rate, step)
+                    if path.exists():
+                        identities[seed, rate, step] = _checked_checkpoint(config, checkpoint_root, seed, rate, step)
+        for row in result["training"] + result["probe"]:
+            cell = row["seed"], row["learning_rate"], row["step"]
+            if row["checkpoint_path"] != str(rate_aware_checkpoint_path(checkpoint_root, *cell)):
+                raise ValueError("raw checkpoint root mismatch")
+            if cell not in identities:
+                raise ValueError("raw evidence references missing checkpoint")
+            if "parameter_sha256" in row and row["parameter_sha256"] != identities[cell]["parameter_sha256"]:
+                raise ValueError("checkpoint parameter digest differs from raw evidence")
+        for seed in config["rate_aware_clock"]["seeds"]:
+            paired = {value["parameter_sha256"] for (s, _, step), value in identities.items() if s == seed and step == 0}
+            if len(paired) > 1:
+                raise ValueError("initialization pairing mismatch")
+        if result["audit"]:
+            _validate_audit(config, result["audit"])
+        if result["summary"] and (len(result["summary"]) != 1
+                or result["summary"][0].get("record_type") != "rate_aware_clock_summary"
+                or result["summary"][0].get("base_config_sha256") != config_digest(config)):
+            raise ValueError("summary identity mismatch")
+        if result["summary"] and result["summary"][0].get("validity_failures"):
+            raise ValueError("existing summary records scientifically invalid evidence")
+        if config_digest(config) == "59f938bbff48f300" and result["audit"]:
+            try:
+                _validate_grid(config, result["training"], result["probe"])
+            except ValueError:
+                pass  # A set of completed trajectories may be resumed.
+            else:
+                summary = analyze_rate_aware_clock(config, result["training"], result["probe"], result["audit"])
+                if summary["validity_failures"]:
+                    raise ValueError("complete evidence fails scientific validity: " + ", ".join(summary["validity_failures"]))
+    except (TypeError, KeyError, OverflowError) as error:
+        raise ValueError(f"incompatible rate-aware evidence: {error}") from error
+    return result
+
+
+def _attempt_event(config, root, seed, rate, kind, status, **details):
+    path = root / "rate_aware_clock_attempts.jsonl"
+    rows = read_rate_aware_jsonl(path) if path.exists() else []
+    rows.append({"record_type": "rate_aware_clock_attempt", "base_config_sha256": config_digest(config),
+                 "seed": seed, "learning_rate": rate, "kind": kind, "status": status,
+                 "timestamp": datetime.now(timezone.utc).isoformat(), **details})
+    atomic_write_rate_aware_jsonl(path, rows)
+
+
+def _produce_trajectory(config, root, seed, rate, kind):
+    selected = _rate_config(config, rate)
+    steps = config["train"]["checkpoint_steps"]
+    records = []
+    if kind == "training":
+        # Failed staging directories are retained for diagnosis. Only a fully
+        # validated run is promoted to canonical checkpoint paths.
+        staging = Path(tempfile.mkdtemp(prefix=".rate-aware-", dir=root))
+        run = train_diagnostic(selected, seed, "fresh", staging / f"lr_{_rate_label(rate)}")
+        for row in run:
+            row = _enrich_record(row, config_digest(config), selected, rate)
+            row.update(_checked_checkpoint(config, staging, seed, rate, row["step"]))
+            row.update(record_type="rate_aware_clock_training", checkpoint_path=str(
+                rate_aware_checkpoint_path(root, seed, rate, row["step"])))
+            records.append(row)
+        _validate_trajectory_rows(config, records, kind, expected_trajectory=(seed, rate))
+        initial = next(row["parameter_sha256"] for row in records if row["step"] == 0)
+        for other_rate in config["rate_aware_clock"]["learning_rates"]:
+            if rate_aware_checkpoint_path(root, seed, other_rate, 0).exists():
+                if _checked_checkpoint(config, root, seed, other_rate, 0)["parameter_sha256"] != initial:
+                    raise ValueError("initialization pairing mismatch")
+        for step in steps:
+            destination = rate_aware_checkpoint_path(root, seed, rate, step)
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            rate_aware_checkpoint_path(staging, seed, rate, step).replace(destination)
+        shutil.rmtree(staging)
+    else:
+        for step in steps:
+            checkpoint = rate_aware_checkpoint_path(root, seed, rate, step)
+            identity = _checked_checkpoint(config, root, seed, rate, step)
+            for row in evaluate_checkpoint_geometry(selected, checkpoint, seed, condition="fresh"):
+                row = _enrich_record(row, config_digest(config), selected, rate)
+                row.update(identity)
+                row.update(record_type="rate_aware_clock_probe", checkpoint_path=str(checkpoint))
+                records.append(row)
+        _validate_trajectory_rows(config, records, kind, expected_trajectory=(seed, rate))
+    return records
+
+
+def _run_rate_aware(config, seeds, learning_rates, checkpoint_root, results_path, kind):
+    seeds, rates = _storage_selection(config, seeds, learning_rates)
+    root = Path(checkpoint_root)
+    existing = preflight_rate_aware_outputs(config, root, **{f"{kind}_path": results_path})[kind]
+    steps = config["train"]["checkpoint_steps"]
+    for seed in seeds:
+        for rate in rates:
+            paths = [rate_aware_checkpoint_path(root, seed, rate, step) for step in steps]
+            cached = [row for row in existing if (row["seed"], row["learning_rate"]) == (seed, rate)]
+            if kind == "probe" and not all(path.exists() for path in paths):
+                raise ValueError("probe requires every selected checkpoint before computation")
+            if kind == "training" and not cached and any(path.exists() for path in paths):
+                raise ValueError("unrecorded checkpoints require explicit recovery; refusing to overwrite evidence")
+    for seed in seeds:
+        for rate in rates:
+            if any((row["seed"], row["learning_rate"]) == (seed, rate) for row in existing):
+                continue
+            _attempt_event(config, root, seed, rate, kind, "started")
+            try:
+                records = _produce_trajectory(config, root, seed, rate, kind)
+                existing.extend(records)
+                if results_path is not None:
+                    atomic_write_rate_aware_jsonl(results_path, existing)
+            except BaseException as error:
+                _attempt_event(config, root, seed, rate, kind, "failed", error=f"{type(error).__name__}: {error}",
+                               scientific_failure=isinstance(error, (ValueError, FloatingPointError)))
+                raise
+            _attempt_event(config, root, seed, rate, kind, "completed")
+    return [row for row in existing if row["seed"] in seeds and row["learning_rate"] in rates]
+
+
+def run_rate_aware_training(config, seeds, learning_rates,
+                            checkpoint_root="checkpoints/mess3_rate_aware_clock", *, results_path=None) -> list[dict]:
+    """Train paired fresh-data trajectories; persist/reuse each completed run."""
+    return _run_rate_aware(config, seeds, learning_rates, checkpoint_root, results_path, "training")
+
+
+def run_rate_aware_probes(config, seeds, learning_rates,
+                         checkpoint_root="checkpoints/mess3_rate_aware_clock", *, results_path=None) -> list[dict]:
+    """Probe exact checkpoints with the inherited measurement definitions."""
+    return _run_rate_aware(config, seeds, learning_rates, checkpoint_root, results_path, "probe")
+
+
+def _token_array_hashes(tokens):
+    """Canonical signed little-endian int64 rows; dataset hash includes its shape.
+
+    Row hashes identify token sequences, independently of sequence IDs and array
+    dtype/layout. The dataset hash additionally preserves row order and count.
+    """
+    values = np.asarray(tokens)
+    if values.ndim != 2 or values.dtype.kind not in "iu":
+        raise ValueError("token arrays must be two-dimensional integer arrays")
+    values = np.asarray(values, dtype="<i8", order="C")
+    row_hashes = {hashlib.sha256(row.tobytes(order="C")).hexdigest() for row in values}
+    digest = hashlib.sha256(np.asarray(values.shape, dtype="<u8").tobytes() + values.tobytes(order="C"))
+    return {"sha256": digest.hexdigest(), "n_rows": len(values), "n_unique_rows": len(row_hashes)}, row_hashes
+
+
+def audit_token_isolation(config, seeds) -> list[dict]:
+    """Hash the actual deterministic evaluation/probe token arrays for each seed.
+
+    Reports overlaps without hiding them or resampling; the validity checker
+    decides whether the resulting evidence permits a confirmatory verdict.
+    """
+    seeds, _ = _storage_selection(config, seeds, config["rate_aware_clock"]["learning_rates"])
+    mixture = mixture_from_config(config)
+    rows = []
+    for seed in seeds:
+        datasets, hashes = {}, {}
+        for name, count, offset in (("evaluation", config["data"]["test_sequences"], 202),
+                                    ("probe_fit", config["probe"]["train_sequences"], 404),
+                                    ("probe_test", config["probe"]["test_sequences"], 505)):
+            batch = sample_from_config(mixture, config, count, config["data"]["sequence_length"], seed + offset)
+            datasets[name], hashes[name] = _token_array_hashes(batch.tokens)
+        pairs = (("evaluation", "probe_fit"), ("evaluation", "probe_test"), ("probe_fit", "probe_test"))
+        rows.append({"record_type": "rate_aware_clock_audit", "seed": seed,
+                     "base_config_sha256": config_digest(config), "datasets": datasets,
+                     "intersections": {f"{a}__{b}": len(hashes[a] & hashes[b]) for a, b in pairs}})
+    return rows

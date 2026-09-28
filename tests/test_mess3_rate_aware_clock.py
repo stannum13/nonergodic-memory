@@ -9,9 +9,357 @@ import numpy as np
 import pytest
 
 from nonergodic_memory.experiment import config_digest, load_config
+import torch
 
 
 CONFIG = Path(__file__).resolve().parents[1] / "configs" / "mess3_rate_aware_clock.yaml"
+
+
+def _tiny_storage_config():
+    config = load_config(CONFIG)
+    config["data"].update(sequence_length=24, train_sequences=16, test_sequences=12)
+    config["model"].update(width=8, heads=2, max_length=32)
+    config["train"].update(batch_size=8, checkpoint_steps=[0, 1])
+    config["diagnosis"]["window"] = 4
+    config["probe"].update(train_sequences=24, test_sequences=16)
+    config["rate_aware_clock"].update(seeds=[3, 4], primary_checkpoints=[1])
+    return config
+
+
+def _storage_run(tmp_path, seeds=(3,), rates=(.003, .006)):
+    config = _tiny_storage_config()
+    root, output = tmp_path / "checkpoints", tmp_path / "training.jsonl"
+    rows = _api("run_rate_aware_training")(config, seeds, rates, root, results_path=output)
+    return config, root, output, rows
+
+
+def test_training_pairs_initialization_and_records_exact_checkpoint_identity(tmp_path):
+    config, root, output, rows = _storage_run(tmp_path)
+    assert len(rows) == 4
+    assert _api("read_rate_aware_jsonl")(output) == rows
+    initial = [row for row in rows if row["step"] == 0]
+    assert initial[0]["parameter_sha256"] == initial[1]["parameter_sha256"]
+    states = []
+    for row in rows:
+        path = _api("rate_aware_checkpoint_path")(root, 3, row["learning_rate"], row["step"])
+        assert row["checkpoint_path"] == str(path)
+        payload = torch.load(path, weights_only=False)
+        assert payload["config"]["train"]["learning_rate"] == row["learning_rate"]
+        assert payload["seed"] == row["seed"] == 3
+        assert payload["step"] == row["step"]
+        assert payload["condition"] == row["condition"] == "fresh"
+        assert row["record_type"] == "rate_aware_clock_training"
+        assert row["base_config_sha256"] == config_digest(config)
+        assert row["config_sha256"] == row["rate_config_sha256"] == config_digest(payload["config"])
+        assert row["parameters_finite"] is True
+        assert len(row["parameter_sha256"]) == 64
+        if row["step"] == 0:
+            states.append(payload["state_dict"])
+    assert all(torch.equal(states[0][key], states[1][key]) for key in states[0])
+
+
+@pytest.mark.parametrize("kind", ["training", "probe"])
+def test_storage_completed_trajectory_persists_and_restarts_after_interruption(tmp_path, monkeypatch, kind):
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    runner = _api(f"run_rate_aware_{'probes' if kind == 'probe' else 'training'}")
+    config = _tiny_storage_config()
+    root, output = tmp_path / "checkpoints", tmp_path / f"{kind}.jsonl"
+    if kind == "probe":
+        _api("run_rate_aware_training")(config, [3, 4], [.003], root)
+    producer = "train_diagnostic" if kind == "training" else "evaluate_checkpoint_geometry"
+    real = getattr(module, producer)
+    calls = []
+    def interrupt(config, *args, **kwargs):
+        seed = args[0] if kind == "training" else args[1]
+        calls.append(seed)
+        if seed == 4:
+            raise InterruptedError("simulated interruption")
+        return real(config, *args, **kwargs)
+    monkeypatch.setattr(module, producer, interrupt)
+    with pytest.raises(InterruptedError):
+        runner(config, [3, 4], [.003], root, results_path=output)
+    saved = _api("read_rate_aware_jsonl")(output)
+    assert len(saved) == (2 if kind == "training" else 12)
+    assert {row["seed"] for row in saved} == {3}
+    checkpoint = _api("rate_aware_checkpoint_path")(root, 3, .003, 1)
+    original = checkpoint.read_bytes(), checkpoint.stat().st_mtime_ns
+    calls.clear()
+    def resume(config, *args, **kwargs):
+        calls.append(args[0] if kind == "training" else args[1])
+        return real(config, *args, **kwargs)
+    monkeypatch.setattr(module, producer, resume)
+    rows = runner(config, [3, 4], [.003], root, results_path=output)
+    assert 3 not in calls
+    assert len(rows) == 2 * len(saved)
+    assert all(row in rows for row in saved)
+    assert original == (checkpoint.read_bytes(), checkpoint.stat().st_mtime_ns)
+
+
+def test_probe_complete_keys_and_cache_reuse(tmp_path, monkeypatch):
+    config, root, _, training = _storage_run(tmp_path)
+    output = tmp_path / "probes.jsonl"
+    runner = _api("run_rate_aware_probes")
+    probes = runner(config, [3], [.003, .006], root, results_path=output)
+    assert len(probes) == 24
+    expected = {(3, rate, step, site, control) for rate in (.003, .006) for step in (0, 1)
+                for site in ("block_1", "block_2", "final_norm") for control in ("none", "shuffled_labels")}
+    assert {(r["seed"], r["learning_rate"], r["step"], r["site"], r["control"]) for r in probes} == expected
+    assert all(r["record_type"] == "rate_aware_clock_probe" for r in probes)
+    assert all(any(r["checkpoint_path"] == t["checkpoint_path"] for t in training) for r in probes)
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    monkeypatch.setattr(module, "evaluate_checkpoint_geometry", lambda *a, **kw: pytest.fail("recomputed cached probes"))
+    before = output.read_bytes(), output.stat().st_mtime_ns
+    assert runner(config, [3], [.003, .006], root, results_path=output) == probes
+    assert before == (output.read_bytes(), output.stat().st_mtime_ns)
+
+
+@pytest.mark.parametrize("corruption", ["digest", "nonfinite", "partial", "duplicate", "path", "parameter_digest"])
+def test_training_cache_rejects_invalid_evidence_before_side_effects(tmp_path, monkeypatch, corruption):
+    config, root, output, rows = _storage_run(tmp_path, rates=(.003,))
+    if corruption == "digest":
+        rows[0]["base_config_sha256"] = "wrong"
+    elif corruption == "nonfinite":
+        rows[0]["competence"] = float("nan")
+    elif corruption == "partial":
+        rows.pop()
+    elif corruption == "duplicate":
+        rows.append(copy.deepcopy(rows[0]))
+    elif corruption == "path":
+        rows[0]["checkpoint_path"] = "wrong.pt"
+    else:
+        rows[0]["parameter_sha256"] = "a" * 64
+    output.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    monkeypatch.setattr(module, "train_diagnostic", lambda *a, **kw: pytest.fail("producer ran before preflight"))
+    with pytest.raises(ValueError):
+        _api("run_rate_aware_training")(config, [3, 4], [.003], root, results_path=output)
+    assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+
+@pytest.mark.parametrize("corruption", ["config", "seed", "step", "condition", "model", "nonfinite", "state"])
+def test_training_cache_rejects_checkpoint_payload_corruption(tmp_path, monkeypatch, corruption):
+    config, root, output, rows = _storage_run(tmp_path, rates=(.003,))
+    path = Path(rows[-1]["checkpoint_path"])
+    payload = torch.load(path, weights_only=False)
+    if corruption == "config":
+        payload["config"]["train"]["learning_rate"] = .999
+    elif corruption in ("seed", "step"):
+        payload[corruption] = 999
+    elif corruption == "condition":
+        payload["condition"] = "reused"
+    elif corruption == "model":
+        payload["model_name"] = "other"
+    else:
+        tensor = next(iter(payload["state_dict"].values()))
+        tensor.flatten()[0] = float("nan") if corruption == "nonfinite" else tensor.flatten()[0] + 1
+    torch.save(payload, path)
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    with pytest.raises(ValueError):
+        _api("run_rate_aware_training")(config, [3, 4], [.003], root, results_path=output)
+    assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+
+def test_probe_preflight_checks_all_selected_checkpoints_before_computing(tmp_path, monkeypatch):
+    config, root, _, rows = _storage_run(tmp_path)
+    Path(rows[-1]["checkpoint_path"]).unlink()
+    output = tmp_path / "probes.jsonl"
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    monkeypatch.setattr(module, "evaluate_checkpoint_geometry", lambda *a, **kw: pytest.fail("probe ran before preflight"))
+    with pytest.raises(ValueError):
+        _api("run_rate_aware_probes")(config, [3], [.003, .006], root, results_path=output)
+    assert not output.exists()
+
+
+def test_audit_hashes_actual_deterministic_disjoint_token_arrays():
+    from nonergodic_memory.experiment import mixture_from_config
+    from nonergodic_memory.mess3_diagnosis import sample_from_config
+    config = _tiny_storage_config()
+    audit = _api("audit_token_isolation")(config, [3, 4])
+    assert audit == _api("audit_token_isolation")(config, [3, 4])
+    assert len(audit) == 2
+    mixture = mixture_from_config(config)
+    for row in audit:
+        assert row["record_type"] == "rate_aware_clock_audit"
+        assert row["base_config_sha256"] == config_digest(config)
+        assert row["intersections"] == {"evaluation__probe_fit": 0, "evaluation__probe_test": 0,
+                                         "probe_fit__probe_test": 0}
+        for name, count, offset in (("evaluation", 12, 202), ("probe_fit", 24, 404), ("probe_test", 16, 505)):
+            tokens = sample_from_config(mixture, config, count, 24, row["seed"] + offset).tokens
+            canonical = np.asarray(tokens, dtype="<i8", order="C")
+            digest = hashlib.sha256(np.asarray(canonical.shape, dtype="<u8").tobytes() + canonical.tobytes()).hexdigest()
+            assert row["datasets"][name] == {"sha256": digest, "n_rows": count, "n_unique_rows": count}
+
+
+def test_audit_detects_real_duplicate_sequences_across_namespaces(monkeypatch):
+    audit = _api("audit_token_isolation")
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    real = module.sample_from_config
+    batches = []
+    def duplicate(*args, **kwargs):
+        batch = real(*args, **kwargs)
+        if batches:
+            batch.tokens[0] = batches[0].tokens[0]
+        else:
+            batch.tokens[1] = batch.tokens[0]
+        batches.append(batch)
+        return batch
+    monkeypatch.setattr(module, "sample_from_config", duplicate)
+    row = audit(_tiny_storage_config(), [3])[0]
+    assert row["datasets"]["evaluation"]["n_unique_rows"] == 11
+    assert row["intersections"] == {"evaluation__probe_fit": 1, "evaluation__probe_test": 1,
+                                     "probe_fit__probe_test": 1}
+
+
+def test_audit_canonical_hash_is_independent_of_dtype_byteorder_and_layout():
+    identity = _api("_token_array_hashes")
+    tokens = np.array([[0, 1, 2], [2, 1, 0]], dtype=np.int32)
+    assert identity(tokens) == identity(np.array(tokens, dtype=">i8", order="F"))
+    assert identity(tokens) != identity(tokens[::-1])
+
+
+def test_training_infrastructure_retry_is_logged_and_scientific_failure_is_not_retried(tmp_path, monkeypatch):
+    runner = _api("run_rate_aware_training")
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    config = _tiny_storage_config()
+    root, output = tmp_path / "checkpoints", tmp_path / "training.jsonl"
+    real = module.train_diagnostic
+    def fail(*args, **kwargs):
+        raise InterruptedError("infrastructure interruption")
+    monkeypatch.setattr(module, "train_diagnostic", fail)
+    with pytest.raises(InterruptedError):
+        runner(config, [3], [.003], root, results_path=output)
+    log = root / "rate_aware_clock_attempts.jsonl"
+    assert log.exists(), "infrastructure attempts must be logged"
+    events = _api("read_rate_aware_jsonl")(log)
+    assert [e["status"] for e in events] == ["started", "failed"]
+    assert all(e["base_config_sha256"] == config_digest(config) for e in events)
+    monkeypatch.setattr(module, "train_diagnostic", real)
+    runner(config, [3], [.003], root, results_path=output)
+    events = _api("read_rate_aware_jsonl")(log)
+    assert [e["status"] for e in events] == ["started", "failed", "started", "completed"]
+    def nonfinite(*args, **kwargs):
+        raise ValueError("nonfinite optimization")
+    monkeypatch.setattr(module, "train_diagnostic", nonfinite)
+    with pytest.raises(ValueError, match="nonfinite"):
+        runner(config, [4], [.003], root, results_path=output)
+    before = log.read_bytes()
+    monkeypatch.setattr(module, "train_diagnostic", lambda *a, **kw: pytest.fail("retried scientific failure"))
+    with pytest.raises(ValueError, match="scientific"):
+        runner(config, [4], [.003], root, results_path=output)
+    assert log.read_bytes() == before
+
+
+def test_training_rejects_new_unpaired_initialization_before_publishing(tmp_path, monkeypatch):
+    runner = _api("run_rate_aware_training")
+    config, root, output, rows = _storage_run(tmp_path, rates=(.003,))
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    real = module.train_diagnostic
+    def changed_initialization(config, seed, condition, destination):
+        run = real(config, seed, condition, destination)
+        path = destination / f"transformer_seed{seed}_fresh_step0.pt"
+        payload = torch.load(path, weights_only=False)
+        next(iter(payload["state_dict"].values())).flatten()[0] += 1
+        torch.save(payload, path)
+        return run
+    monkeypatch.setattr(module, "train_diagnostic", changed_initialization)
+    original = output.read_bytes()
+    with pytest.raises(ValueError, match="pairing"):
+        runner(config, [3], [.006], root, results_path=output)
+    assert output.read_bytes() == original
+    assert not _api("rate_aware_checkpoint_path")(root, 3, .006, 0).exists()
+
+
+@pytest.mark.parametrize("case", ["zero_heads", "zero_batch", "short_context", "fractional_count", "confirmation_config"])
+def test_training_invalid_configuration_fails_before_any_side_effect(tmp_path, monkeypatch, case):
+    config = _tiny_storage_config()
+    if case == "zero_heads":
+        config["model"]["heads"] = 0
+    elif case == "zero_batch":
+        config["train"]["batch_size"] = 0
+    elif case == "short_context":
+        config["model"]["max_length"] = 2
+    elif case == "fractional_count":
+        config["data"]["test_sequences"] = 1.5
+    else:
+        config["rate_aware_clock"]["seeds"] = [40]
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    monkeypatch.setattr(module, "train_diagnostic", lambda *a, **kw: pytest.fail("producer called"))
+    with pytest.raises(ValueError):
+        _api("run_rate_aware_training")(config, config["rate_aware_clock"]["seeds"], [.003],
+                                        tmp_path / "checkpoints", results_path=tmp_path / "training.jsonl")
+    assert list(tmp_path.iterdir()) == []
+
+
+@pytest.mark.parametrize("kind", ["training", "probe"])
+def test_storage_empty_producer_result_is_rejected(tmp_path, monkeypatch, kind):
+    config, root, output, _ = _storage_run(tmp_path, rates=(.003,))
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    if kind == "training":
+        monkeypatch.setattr(module, "train_diagnostic", lambda *a, **kw: [])
+        runner, seeds = _api("run_rate_aware_training"), [4]
+    else:
+        monkeypatch.setattr(module, "evaluate_checkpoint_geometry", lambda *a, **kw: [])
+        runner, seeds, output = _api("run_rate_aware_probes"), [3], tmp_path / "probes.jsonl"
+    before = output.read_bytes() if output.exists() else None
+    with pytest.raises(ValueError, match="complete"):
+        runner(config, seeds, [.003], root, results_path=output)
+    assert (output.read_bytes() if output.exists() else None) == before
+
+
+def test_cache_parameter_digest_uses_sorted_tensors_and_detects_any_change():
+    identity = _api("_parameter_identity")
+    state = {"b": torch.tensor([1., 2.]), "a": torch.tensor([[3.]])}
+    assert identity(state) == identity(dict(reversed(list(state.items()))))
+    changed = {key: value.clone() for key, value in state.items()}
+    changed["a"][0, 0] += 1
+    assert identity(state)[0] != identity(changed)[0]
+    changed["a"][0, 0] = float("nan")
+    assert identity(changed)[1] is False
+
+
+def test_cache_atomic_writer_preserves_original_when_rename_fails(tmp_path, monkeypatch):
+    writer = _api("atomic_write_rate_aware_jsonl")
+    output = tmp_path / "output.jsonl"
+    writer(output, [{"original": True}])
+    before = output.read_bytes()
+    def fail(*args, **kwargs):
+        raise OSError("simulated rename interruption")
+    monkeypatch.setattr(Path, "replace", fail)
+    with pytest.raises(OSError):
+        writer(output, [{"new": True}])
+    assert output.read_bytes() == before
+    assert list(tmp_path.iterdir()) == [output]
+
+
+@pytest.mark.parametrize("kind", ["audit", "summary"])
+def test_cache_preflight_rejects_other_output_identity_before_writes(tmp_path, kind):
+    config = _tiny_storage_config()
+    path = tmp_path / f"{kind}.jsonl"
+    path.write_text(json.dumps({"record_type": f"rate_aware_clock_{kind}", "base_config_sha256": "wrong"}) + "\n")
+    before = path.read_bytes()
+    with pytest.raises(ValueError):
+        _api("preflight_rate_aware_outputs")(config, tmp_path / "checkpoints", **{f"{kind}_path": path})
+    assert path.read_bytes() == before
+    assert not (tmp_path / "checkpoints").exists()
+
+
+def test_training_missing_measurement_is_recorded_as_scientific_failure(tmp_path, monkeypatch):
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    real = module.train_diagnostic
+    def missing(*args, **kwargs):
+        rows = real(*args, **kwargs)
+        del rows[-1]["competence"]
+        return rows
+    monkeypatch.setattr(module, "train_diagnostic", missing)
+    root = tmp_path / "checkpoints"
+    with pytest.raises(ValueError):
+        _api("run_rate_aware_training")(_tiny_storage_config(), [3], [.003], root,
+                                        results_path=tmp_path / "training.jsonl")
+    events = _api("read_rate_aware_jsonl")(root / "rate_aware_clock_attempts.jsonl")
+    assert events[-1]["scientific_failure"] is True
+    assert not (tmp_path / "training.jsonl").exists()
+    assert list(root.glob(".rate-aware-*/lr_0p003/*.pt")), "failed evidence must remain available"
 
 
 def _api(name):
