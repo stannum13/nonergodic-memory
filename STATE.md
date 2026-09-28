@@ -126,9 +126,11 @@ execution. The documentation commit titled
 `docs: approve rate-aware implementation lock` records this boundary,
 superseding the initial lock recorded in `5f02d75`. Independent methods,
 integrity, and code reviewers all **APPROVE**, with no remaining Critical or
-Important findings. Publication of the approved locked branch remains pending
-and must be recorded before seeds 40–47 are executed. No confirmation result
-or verdict exists.
+Important findings. The approved documentation lock
+`d1b388054a2cf5ebbac3040a8346f80faf1082a3` was published to
+`origin/experiment/rate-aware-clock` before execution; a fresh remote-head
+query and clean synchronized local branch confirmed that exact boundary.
+At the lock, no confirmation result or verdict existed.
 
 Council findings were repaired in `ec368508` and `933f50fc`, then independently
 re-reviewed. The repairs bind probe rows to checkpoint parameters, verify cached
@@ -192,8 +194,52 @@ only supplied or otherwise known result paths; and figure publication is
 atomic per image, not across both images. None changes the scientific rules
 or permits adaptive recovery.
 
-The remaining publication step and the unstarted execution checklist are tracked in
+The publication evidence and execution checklist are tracked in
 [IMPLEMENTATION.md](experiments/rate_aware_clock/IMPLEMENTATION.md).
+
+## Rate-aware clock external validation: frozen confirmation result
+
+The audited raw evidence gives the frozen verdict **falsified**
+on 2026-09-28. Clock MSE is **0.008177847709212512** versus competence MSE
+**0.006933045029332025**, for a clock/competence ratio of
+**1.1795463140097937**, failing the required strict `< 0.80` effect. The clock
+wins **4/8 seeds**, failing the required 7/8. Competence also wins 4/8;
+its descriptive inverse ratio is 0.8477835826560831. This does not establish
+equivalence or universal competence superiority.
+
+All validity conditions pass: the grid has exactly 128 training, 768 probe,
+eight audit, and one summary record; all 128 checkpoints and 3,840 state tensors
+are finite and correctly bound to raw rows. The maximum absolute primary
+shuffled component R² is 0.011172377858478355, below 0.02. All 24 actual-token
+intersection checks are zero after reconstructing 14,336 sequences. Rate
+dissociation passes in 8/8 seeds, and every primary predictor lies within
+frozen support. Both rates share exact step-zero parameters in every seed;
+16 initialization training cells and 96 probe rows are excluded from primary
+scoring. All eight seeds receive equal weight over 14 observations each.
+Strict JSON, frozen 256-row source refits, and exact independent score/summary
+reproduction pass; `validity_failures` is empty.
+
+One uninterrupted `make rate-aware-clock` invocation took **3,479.48 seconds**
+(57 min 59.48 s) on CPU, with 3,114.70 seconds user and 332.54 seconds system
+time. There were no failed attempts, retries, replacements, or post-data
+changes to the design, implementation, or figures. Both figures regenerate
+byte-identically from raw JSONLs. Every seed error, artifact hash, validity
+check, execution log, and limitation is recorded in
+[RESULTS.md](experiments/rate_aware_clock/RESULTS.md).
+
+Final verification passed **470 tests in 260.77 seconds** and `make smoke`
+(both exit 0). The two unrelated smoke JSONL schema rewrites were inspected
+and restored; no source, configuration, protocol, or frozen evidence changed.
+Independent raw-result and whole-branch reviews remain required before merge.
+
+The exploratory old-seed clock advantage did not meet the external
+transport prediction on new seeds. The earlier global threshold result remains
+falsified, and the competence–time comparison against rate-unaware log-step
+remains supported. This new result is bounded to the selected generator,
+architecture, rates, and steps; it neither identifies a causal optimization
+mechanism nor tests causal use of geometry. A further causal-predictive-memory
+pilot requires its own committed numerical compute budget, data allocation,
+intervention-validity criteria, and stopping rule before any training.
 
 ## Registered Mess3 geometry-threshold prediction
 

@@ -35,12 +35,21 @@ and 60 covering regressions passing; smoke passed at `ec368508`, with its
 numerical and generic paths unchanged by the follow-up. Fresh artifact/history,
 config, source-hash, and protected-file checks through `933f50fc` passed.
 
-Task 5's publication step remains pending until the approved lock is pushed and
-that boundary is recorded. No confirmation execution is permitted before that
-step completes. Task 6 remains unstarted, with no seed 40–47 confirmation data
-or verdict. The single-writer, explicit orphan-checkpoint recovery, known-path
-alias validation, and per-image publication limitations are recorded in
-`STATE.md`.
+Task 5's approved documentation lock
+`d1b388054a2cf5ebbac3040a8346f80faf1082a3` was published to
+`origin/experiment/rate-aware-clock` before Task 6 execution. A fresh remote-head
+query, clean synchronized branch, exact source/config/protocol hashes, frozen
+forecast refit, and zero-artifact scan passed before the single registered run.
+The published boundary was recorded in the private execution report before
+starting. Task 6 execution and raw-evidence validation are complete: the frozen
+verdict is **falsified** (clock/competence MSE ratio 1.1795463140097937;
+clock wins 4/8 seeds), with every validity condition passing. The full report
+is [RESULTS.md](RESULTS.md). Final verification passed 470 tests in 260.77 s
+and `make smoke`, both exit 0; unrelated smoke schema rewrites were inspected
+and restored. Independent reviews and publication are tracked below.
+The single-writer, explicit orphan-checkpoint recovery, known-path alias
+validation, and per-image publication
+limitations remain recorded in `STATE.md`.
 
 ## Global constraints
 
@@ -202,7 +211,7 @@ alias validation, and per-image publication limitations are recorded in
   `git commit -m "docs: lock rate-aware experiment"`.
 - [x] Refresh the approved code lock and council evidence with
   `git commit -m "docs: approve rate-aware implementation lock"`.
-- [ ] Push the locked branch after the independent audit is resolved and record
+- [x] Push the locked branch after the independent audit is resolved and record
   the published lock boundary.
 
 ### Task 6: Execute, audit, interpret, and publish the frozen result
@@ -224,21 +233,23 @@ alias validation, and per-image publication limitations are recorded in
 - `make rate-aware-clock` produces the complete retained grid, audit, summary,
   and figures from the locked implementation.
 
-- [ ] Run one uninterrupted `/usr/bin/time -p make rate-aware-clock`, retaining
+- [x] Run one uninterrupted `/usr/bin/time -p make rate-aware-clock`, retaining
   a private execution log; resume only identical interrupted work.
-- [ ] Validate exact record counts 128/768/8/1, all raw provenance, forecast
+- [x] Validate exact record counts 128/768/8/1, all raw provenance, forecast
   coefficients, checkpoint identity, token intersections, finite metrics,
   shuffled bounds, dissociation, support, step-zero exclusion, and seed-equal
   scoring before reading the verdict.
-- [ ] Write `RESULTS.md` with the frozen verdict, every seed error, all validity
+- [x] Write `RESULTS.md` with the frozen verdict, every seed error, all validity
   checks, wall/user/sys time, exploratory motivation, negative results, and
   limitations. Update `STATE.md`, README, and report without weakening the
   earlier registered claims.
-- [ ] Regenerate both figures only from committed raw JSONLs and verify hashes
+- [x] Regenerate both figures only from committed raw JSONLs and verify hashes
   are stable.
-- [ ] Run `pytest -q` and `make smoke`; restore unrelated generated rewrites.
+- [x] Run `pytest -q` and `make smoke`; restore unrelated generated rewrites.
 - [ ] Obtain independent raw-result and whole-branch reviews; fix code-quality
   defects only in clearly labeled post-result commits, preserving raw artifact
   hashes and decision logic.
-- [ ] Commit and push all intended artifacts, open and merge a PR to `main`, and
+- [x] Commit intended artifacts and result documentation with
+  `git commit -m "experiment: report rate-aware clock validation"`.
+- [ ] Push all intended artifacts, open and merge a PR to `main`, and
   verify local/remote `main` plus zero open PRs.

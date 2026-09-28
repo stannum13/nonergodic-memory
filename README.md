@@ -10,7 +10,7 @@ Real sequence data is heterogeneous: a document has an author, language, genre, 
 
 This repository turns that claim into a controlled experiment. The sources are small hidden Markov models (HMMs), so the exact Bayesian posterior and exact next-token distribution are computable at every position. A GRU and a decoder-only Transformer see only tokens. Held-out probes test whether their activations recover the exact beliefs; causal projections test whether removing those representations selectively damages behavior.
 
-The result is deliberately mixed. The simpler HMM experiment recovers component information, but conditional-state and causal-erasure effects are architecture- and seed-sensitive. The first direct Mess3 reproduction fails its registered trained-over-untrained prediction. A later diagnosis shows that fresh data improves prediction at 768 updates without recovering component geometry; substantial geometry appears only after 3,072 fresh-data updates. A five-seed, two-learning-rate follow-up then falsifies the preregistered claim that predictive competence globally aligns geometry better than optimizer step. That is evidence for a training/generalization confound and multi-stage learning dynamics, not an exact reproduction of the published number.
+The result is deliberately mixed. The simpler HMM experiment recovers component information, but conditional-state and causal-erasure effects are architecture- and seed-sensitive. The first direct Mess3 reproduction fails its registered trained-over-untrained prediction. A later diagnosis shows that fresh data improves prediction at 768 updates without recovering component geometry; substantial geometry appears only after 3,072 fresh-data updates. A five-seed, two-learning-rate follow-up then falsifies the preregistered claim that predictive competence globally aligns geometry better than optimizer step. A separately registered post-initialization study supports competence over raw log-step. A further eight-seed external test falsifies the proposed advantage of a frozen rate-aware clock over competence: the clock/competence MSE ratio is 1.180, with only four clock wins. These bounded comparisons expose training and generalization effects without establishing a causal mechanism or reproducing the published number exactly.
 
 ## Why this problem matters
 
@@ -122,6 +122,8 @@ Linear probes are used as diagnostics in the sense of [Alain and Bengio (2016)](
 | Direct two-Mess3 reproduction | Registered prediction fails: trained joint-belief R² is `0.3212 ± 0.0047`, below untrained `0.3362 ± 0.0058`. | Exact source process alone is insufficient under the smaller architecture and training protocol. |
 | Fresh-versus-reused diagnosis | At 768 updates, fresh data improves predictive KL but component R² stays near zero. At 3,072 fresh updates, deeper-layer joint-belief R² reaches `0.62–0.73`; reused training overfits. | Sequence reuse confounds prediction, while geometry recovery additionally requires more optimization. |
 | Five-seed geometry-threshold test | Registered competence-only LOSO MSE is `0.01317` versus step-only `0.00554`; ratio `2.378`, failing the predicted `<0.80`. | Across initialization and training, optimizer step predicts component geometry better. A post-hoc exclusion of initialization reverses the comparison (`0.477`), so the conclusion is regime-sensitive. |
+| Preregistered competence–time dissociation | Post-initialization competence/log-step LOSO MSE ratio `0.457232`; competence wins `8/8` seeds; all validity checks pass. | Supports the registered comparison against rate-unaware step; the earlier global failure remains unchanged. |
+| Frozen rate-aware-clock external validation | Clock/competence MSE ratio `1.179546`; clock wins `4/8` new seeds; all validity checks pass. **Falsified.** | The exploratory old-data clock advantage did not transport under the registered rule. This does not establish equivalence or universal competence superiority. |
 | Causal erasure | Learned directions show average selectivity, but effects vary by seed and architecture and sometimes occur in untrained networks. | No evidence for a universally stable, selectively necessary final-layer factorization. |
 
 The full numerical record—including negative results and limitations—is in the [technical report](report.md).
@@ -136,6 +138,25 @@ The full numerical record—including negative results and limitations—is in t
 - **LOSO MSE** is leave-one-seed-out prediction error. In the threshold test, both learning-rate trajectories for the held-out seed are excluded from fitting.
 
 ## Key figures
+
+### Does a frozen rate-aware clock transport to new seeds?
+
+![Frozen rate-aware-clock forecasts and every seed error](figures/mess3_rate_aware_clock_forecasts.png)
+
+Both quadratic forecasts were fixed on seeds 30–37 before testing seeds 40–47.
+The clock has MSE `0.008177848` versus competence's `0.006933045`; the
+clock/competence ratio `1.179546` fails the required `<0.80`, and four seed
+wins fail the required seven. Every validity check passes, so the frozen
+verdict is **falsified**. The [complete results](experiments/rate_aware_clock/RESULTS.md)
+include every seed, validity check, execution time, hashes, and limitations.
+
+![Rate-aware validation learning curves](figures/mess3_rate_aware_clock_learning.png)
+
+The paired rates share initialization and fresh batches within seed. Diamonds
+show retained step-zero controls, excluded from both forecasts. Initialization
+compresses the trained competence curves on this locked plot's vertical scale;
+numerical forecast errors carry the primary comparison. No causal intervention
+is performed.
 
 ### Does geometry align with predictive competence?
 
@@ -180,8 +201,10 @@ Removing learned component or state subspaces can selectively reduce the corresp
 | Recreate the exact two-Mess3 fidelity test | `make reproduce-mess3` | about 163 seconds uncached, 35 seconds cached in the recorded environment |
 | Recreate the fresh-versus-reused diagnosis | `make diagnose-mess3` | recorded uncached wall time 3:02:13; exploratory two-seed grid |
 | Recreate the five-seed threshold test | `make threshold-mess3` | recorded uncached wall time 30:57 after one pilot; 70 training and 420 probe cells |
+| Execute the locked rate-aware-clock grid | `make rate-aware-clock` | recorded wall time 57:59.48; 128 training, 768 probe, 8 audit, 1 summary; requires matching local checkpoints or separate empty output paths |
+| Regenerate rate-aware figures without checkpoints | [Raw-JSONL recipe](experiments/rate_aware_clock/RESULTS.md#figures-and-reproducibility) | no training or probing; both PNGs reproduce byte-for-byte |
 | Rebuild plots without training | `make figures` | reads checked-in JSONL only |
-| Run automated verification | `pytest -q` | 130 tests in the current release |
+| Run automated verification | `PYTHONPATH=src pytest -q` | 470 tests passed in the recorded final verification |
 
 Start with `make smoke`. The Mess3 commands are still CPU-sized, but they are research runs rather than installation checks. No GPU result is claimed.
 
@@ -223,6 +246,16 @@ pytest -q
 
 `make threshold-mess3` uses `configs/mess3_threshold.yaml`. Seeds 20–24 run on paired fresh batches at learning rates 0.003/0.0015 with seven checkpoints through 3,072 updates. The uncached registered grid took 30:57 wall time after reusing one 136.65-second pilot. It writes 70 training cells, 420 layer/control probe cells, one preregistered summary, and two figures. The vectorized sampler is distribution-tested and measured at 23.9× the reference sampler for a 64×64 batch; this benchmark is not treated as an explanation of the earlier wall/user-time discrepancy.
 
+`make rate-aware-clock` uses the locked `configs/mess3_rate_aware_clock.yaml`
+and frozen old-data forecasts. The retained confirmation ran once on seeds
+40–47 at rates 0.003/0.006 through 3,072 updates, with no retries or added
+cells. Its CLI validates both raw records and matching checkpoints; a fresh
+clone containing the committed JSONLs but no checkpoints should use the
+linked raw-JSONL figure recipe. A separate training reproduction must select
+empty checkpoint/result paths through the CLI rather than overwrite this
+confirmation's evidence. See the [protocol](experiments/rate_aware_clock/PROTOCOL.md)
+and [results](experiments/rate_aware_clock/RESULTS.md).
+
 ## Artifact map
 
 - `src/nonergodic_memory/data/hmm.py`: sampling and exact Bayesian filtering.
@@ -237,6 +270,8 @@ pytest -q
 - `results/mess3_diagnosis_*.jsonl`: exact predictive baselines, matched fresh/reused training curves, and layerwise normal/shuffled belief probes.
 - `figures/mess3_predictive_baselines.png` and `figures/mess3_learning_geometry.png`: the available predictive signal and the relationship between predictive KL and held-out joint-belief recovery.
 - `results/mess3_threshold_*.jsonl` and `figures/mess3_threshold_*.png`: paired five-seed learning curves, normal/shuffled probes, registered LOSO model comparison, and the labeled post-initialization sensitivity analysis.
+- `experiments/competence_time/RESULTS.md`, `results/mess3_competence_time_*.jsonl`, and `figures/mess3_competence_time_*.png`: the supported preregistered post-initialization competence-versus-log-step comparison.
+- `experiments/rate_aware_clock/RESULTS.md`, `results/mess3_rate_aware_clock_*.jsonl`, and `figures/mess3_rate_aware_clock_*.png`: the falsified external frozen-clock prediction, complete new-seed errors, actual-token audit, and unchanged registered decision.
 - `results/sweep_overlap_*.jsonl` and `figures/sweep_overlap.png`: the registered source-overlap extension.
 - `results/sweep_length_*.jsonl` and `figures/sweep_length.png`: the registered sequence-length follow-up.
 - `results/sweep_components_*.jsonl` and `figures/sweep_components.png`: the registered component-count sweep.
