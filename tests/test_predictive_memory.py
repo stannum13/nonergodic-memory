@@ -18,6 +18,7 @@ from nonergodic_memory.predictive_memory import (
     exact_conditionals,
     joint_belief,
     persistent_conditionals,
+    prerequisite_gate_errors,
     passes_feasibility_gates,
     response_score,
     signed_random_delta,
@@ -370,6 +371,20 @@ def test_complete_evidence_validator_rejects_missing_registered_cells():
     assert any("split" in error for error in errors)
     assert any("calibration" in error for error in errors)
     assert any("response" in error for error in errors)
+
+
+def test_prerequisite_gate_audit_rejects_failed_trained_model():
+    rows = [
+        {"record_type": "calibration", "cohort": "development", "seed": 10, "step": 3072, "passed": True},
+        {"record_type": "calibration", "cohort": "development", "seed": 11, "step": 3072, "passed": False},
+    ]
+    errors = prerequisite_gate_errors(
+        rows,
+        development_seeds=(10, 11),
+        heldout_seeds=(),
+        primary_step=3072,
+    )
+    assert errors == ["trained development prerequisite gates did not all pass"]
 
 
 def test_result_preflight_refuses_to_overwrite_any_existing_evidence(tmp_path: Path):

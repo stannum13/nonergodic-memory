@@ -27,3 +27,21 @@ def test_watchdog_records_success_after_entire_child_command(tmp_path: Path):
     row = json.loads(summary.read_text(encoding="utf-8"))
     assert row["status"] == "complete"
     assert row["child_exit_code"] == 0
+
+
+def test_watchdog_rejects_second_owner_without_running_or_writing_status(tmp_path: Path):
+    status = tmp_path / "command.jsonl"
+    reservation = tmp_path / "watchdog.jsonl"
+    side_effect = tmp_path / "child-ran"
+    reservation.write_text('{"event":"started"}\n', encoding="utf-8")
+    before = reservation.read_bytes()
+    code = run_with_timeout(
+        [sys.executable, "-c", f"from pathlib import Path; Path({str(side_effect)!r}).touch()"],
+        seconds=2,
+        timeout_summary=status,
+        reservation=reservation,
+    )
+    assert code == 73
+    assert reservation.read_bytes() == before
+    assert not side_effect.exists()
+    assert not status.exists()

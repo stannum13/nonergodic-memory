@@ -170,3 +170,9 @@ substitution if the cap is reached. Existing checkpoints are inputs and their
 SHA-256 hashes are recorded. Implementation tests and an independent audit occur
 before the result-bearing command. No pilot result may be deleted or overwritten
 after inspection; corrections require an append-only erratum and a new protocol.
+An exclusive outer-watchdog record reserves the public command before its child
+starts. The immutable scientific summary records analysis completion, while a
+separate command-status record says whether the full producer-plus-figure command
+completed, timed out, or failed. This distinction prevents a rendering timeout
+from overwriting completed scientific evidence and prevents concurrent invocations
+from publishing status into one another's run.

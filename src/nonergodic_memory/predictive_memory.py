@@ -348,6 +348,36 @@ def validate_complete_evidence(
     return sorted(set(errors))
 
 
+def prerequisite_gate_errors(
+    records: list[dict],
+    *,
+    development_seeds: tuple[int, ...],
+    heldout_seeds: tuple[int, ...],
+    primary_step: int,
+) -> list[str]:
+    """Require every trained prerequisite calibration to exist and pass."""
+    errors = []
+    for cohort, seeds in (
+        ("development", development_seeds),
+        ("heldout", heldout_seeds),
+    ):
+        if not seeds:
+            continue
+        rows = [
+            row
+            for row in records
+            if row.get("record_type") == "calibration"
+            and row.get("cohort") == cohort
+            and row.get("step") == primary_step
+        ]
+        actual = [row.get("seed") for row in rows]
+        if set(actual) != set(seeds) or len(actual) != len(seeds) or not all(
+            row.get("passed") is True for row in rows
+        ):
+            errors.append(f"trained {cohort} prerequisite gates did not all pass")
+    return errors
+
+
 def analyze_evidence(
     records: list[dict], summary: dict, config: dict, experiment_digest: str
 ) -> dict:
@@ -410,6 +440,14 @@ def analyze_evidence(
         ]
         if calibrations and all(row.get("passed") for row in calibrations):
             errors.append("invalid heldout summary has no failed heldout gate")
+        errors.extend(
+            prerequisite_gate_errors(
+                records,
+                development_seeds=development,
+                heldout_seeds=(),
+                primary_step=primary_step,
+            )
+        )
     elif status in {"criterion_not_met", "promising_pilot"} and stage == "complete":
         errors.extend(
             validate_complete_evidence(
@@ -418,6 +456,14 @@ def analyze_evidence(
                 heldout_seeds=heldout,
                 steps=steps,
                 **common,
+            )
+        )
+        errors.extend(
+            prerequisite_gate_errors(
+                records,
+                development_seeds=development,
+                heldout_seeds=heldout,
+                primary_step=primary_step,
             )
         )
         if not errors:

@@ -10,4 +10,5 @@ fi
 exec "${PYTHON:-python3}" -m nonergodic_memory.watchdog \
   --seconds 3600 \
   --timeout-summary results/predictive_memory_command.jsonl \
+  --reservation results/predictive_memory_watchdog.jsonl \
   -- bash scripts/predictive_memory_inner.sh
