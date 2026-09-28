@@ -28,7 +28,7 @@ command ended normally.
 | dose-zero identity error | ≤ 1e-6 | 5.96e-8 | 5.96e-8 | pass/pass |
 | full oracle enumeration error | ≤ 1e-10 | 1.94e-16 | 1.67e-16 | pass/pass |
 
-All four split pairs are exactly disjoint in both seeds, all recorded values are
+All four splits are pairwise disjoint in both seeds, all recorded values are
 finite, both checkpoint hashes match preflight hashes, and the shared evidence
 analyzer reproduces the stopped status.
 

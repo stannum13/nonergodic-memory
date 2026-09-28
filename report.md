@@ -425,9 +425,11 @@ The protocol was locked before execution and required an independent actuator
 fidelity gate before any causal outcome. A standardized ridge decoder was fit on
 2,048 fresh prefixes, a second decoder on 1,024 disjoint prefixes, and gates were
 measured on another 128. Development used only the existing fresh-data seed-10
-and seed-11 step-3,072 checkpoints. Held-out model seeds 20--24, evaluation
-prefixes, shuffled/random actuators, and step-zero controls could be opened only
-after both development models passed.
+and seed-11 step-3,072 checkpoints. Development evaluation prefixes were
+generated and hashed, and shuffled-target actuators were fitted during
+calibration. Behavioral evaluation—including learned, shuffled, and random
+interventions—and loading held-out or step-zero models required both development
+checkpoints to pass.
 
 The registered command stopped at that gate. Whole-prefix component-posterior R²
 was 0.892812 and 0.908015, while five-coordinate joint-belief R² was 0.780860 and

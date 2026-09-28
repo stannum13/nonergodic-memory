@@ -152,6 +152,8 @@ The blue bars are component-posterior R² and the orange bars are
 five-coordinate joint-belief R². Both are high, but the right panel shows the
 worst-dose relative squared displacement error under an independent decoder:
 `0.613` and `0.659`, versus the registered `≤0.50` gate. Every other gate passes.
+Here “held-out linear recovery” means held-out calibration prefixes within the
+development model seeds, not held-out model seeds.
 The command therefore stops before model seeds 20--24 or any behavioral response
 is opened. This is a useful negative result about intervention validity—not a
 negative causal-memory result. See the [complete result and immutable hashes](experiments/predictive_memory/RESULTS.md).
