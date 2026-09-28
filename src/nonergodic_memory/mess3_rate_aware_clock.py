@@ -133,7 +133,7 @@ def _integer(value) -> int:
 
 
 def _validate_grid(config: dict, training: list[dict], probes: list[dict], *, require_complete=True,
-                   check_science=True) -> None:
+                   check_science=True, require_isolation=True) -> None:
     """Check raw identity always; optionally require scientific validity/completeness."""
     experiment = config["rate_aware_clock"]
     expected = {(seed, rate, step) for seed in experiment["seeds"]
@@ -194,7 +194,7 @@ def _validate_grid(config: dict, training: list[dict], probes: list[dict], *, re
                 keys.append(cell)
             else:
                 overlap = _integer(row.get("probe_sequence_overlap", -1))
-                if overlap < 0 or (check_science and overlap != 0):
+                if overlap < 0 or (check_science and require_isolation and overlap != 0):
                     raise ValueError("probe sequence overlap")
                 keys.append((*cell, row["site"], row["control"]))
         if (not set(keys) <= expected_cells or (check_science and (
@@ -277,13 +277,17 @@ def _score_forecasts(config: dict, cells: dict, primary_probes: list[dict]) -> d
     return result
 
 
-def analyze_rate_aware_clock(config, training, probes, audit) -> dict:
+def analyze_rate_aware_clock(config, training, probes, audit, *, terminal_scientific_failure: bool = False) -> dict:
     """Apply the preregistered validity-first three-way decision, without fitting.
 
     Only retained old rows enter the provenance refit. All confirmation scoring
     uses the serialized coefficients. Invalid observations produce an auditable
     inconclusive summary; step zero is never forecast or checked for support.
+    Terminal execution evidence is supplied independently of the observations.
+    The default preserves the original raw-evidence-only analysis and schema.
     """
+    if not isinstance(terminal_scientific_failure, bool):
+        raise ValueError("terminal scientific failure evidence must be a boolean")
     result = {
         "record_type": "rate_aware_clock_summary", "base_config_sha256": config_digest(config),
         "target": "block_2_component_posterior_r2", "validation": "frozen_external_forecast",
@@ -292,6 +296,9 @@ def analyze_rate_aware_clock(config, training, probes, audit) -> dict:
         "excluded_initialization_count": None,
     }
     failures = result["validity_failures"]
+    if terminal_scientific_failure:
+        result["terminal_scientific_failure"] = True
+        failures.append("terminal_scientific_failure")
     try:
         result["provenance"] = verify_forecast_provenance(config, Path(__file__).resolve().parents[2])
     except (OSError, ValueError, TypeError, KeyError, np.linalg.LinAlgError) as error:
@@ -532,7 +539,7 @@ def _storage_selection(config, seeds, rates):
 def _validate_trajectory_rows(config, rows, kind, *, expected_trajectory=None):
     try:
         _validate_grid(config, rows if kind == "training" else [], rows if kind == "probe" else [],
-                       require_complete=False)
+                       require_complete=False, require_isolation=False)
     except (KeyError, TypeError, OverflowError) as error:
         raise ValueError(f"invalid {kind} measurements: {error}") from error
     if any(row.get("parameters_finite") is not True or not _is_sha256(row.get("parameter_sha256"))
@@ -595,22 +602,11 @@ def preflight_rate_aware_outputs(config, checkpoint_root, *, training_path=None,
             if len(paired) > 1:
                 raise ValueError("initialization pairing mismatch")
         if result["audit"]:
-            _validate_audit(config, result["audit"])
+            _validate_audit(config, result["audit"], require_isolation=False)
         if result["summary"] and (len(result["summary"]) != 1
                 or result["summary"][0].get("record_type") != "rate_aware_clock_summary"
                 or result["summary"][0].get("base_config_sha256") != config_digest(config)):
             raise ValueError("summary identity mismatch")
-        if result["summary"] and result["summary"][0].get("validity_failures"):
-            raise ValueError("existing summary records scientifically invalid evidence")
-        if config_digest(config) == "59f938bbff48f300" and result["audit"]:
-            try:
-                _validate_grid(config, result["training"], result["probe"])
-            except ValueError:
-                pass  # A set of completed trajectories may be resumed.
-            else:
-                summary = analyze_rate_aware_clock(config, result["training"], result["probe"], result["audit"])
-                if summary["validity_failures"]:
-                    raise ValueError("complete evidence fails scientific validity: " + ", ".join(summary["validity_failures"]))
     except (TypeError, KeyError, OverflowError) as error:
         raise ValueError(f"incompatible rate-aware evidence: {error}") from error
     return result

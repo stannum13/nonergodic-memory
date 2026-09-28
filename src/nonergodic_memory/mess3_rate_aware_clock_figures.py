@@ -114,15 +114,17 @@ def _forecast_figure(config, rows, summary, destination):
     return _save(fig, destination / "mess3_rate_aware_clock_forecasts.png")
 
 
-def generate_rate_aware_clock_figures(config, training, probes, audit, summary, output_dir) -> list[Path]:
-    """Plot only a complete finite grid and its exactly recomputed analysis."""
+def generate_rate_aware_clock_figures(config, training, probes, audit, summary, output_dir, *,
+                                     terminal_scientific_failure: bool = False) -> list[Path]:
+    """Recompute from raw and explicit execution evidence, never from summary flags."""
     destination = Path(output_dir)
     _validate_artifact_paths([destination / f"mess3_rate_aware_clock_{name}.png"
                               for name in ("learning", "forecasts")], directories=[destination])
     _validate_grid(config, training, probes)
     # Preserve overlap as a scientific failure while rejecting corrupted audit identity.
     _validate_audit(config, audit, require_isolation=False)
-    expected = analyze_rate_aware_clock(config, training, probes, audit)
+    expected = analyze_rate_aware_clock(config, training, probes, audit,
+                                        terminal_scientific_failure=terminal_scientific_failure)
     integrity_failures = set(expected["validity_failures"]) & {"forecast_provenance", "invalid_grid", "initialization_pairing"}
     if integrity_failures:
         raise ValueError("rate-aware figure integrity/provenance failure: " + ", ".join(sorted(integrity_failures)))

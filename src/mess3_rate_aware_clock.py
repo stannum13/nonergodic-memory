@@ -83,7 +83,10 @@ def _preflight(config: dict, args: argparse.Namespace) -> dict:
 
 
 def _preserve_scientific_evidence(config, rows) -> bool:
-    """Only subsets of complete compatible trajectories are eligible to resume."""
+    """Stop only for a full grid or terminal execution/trajectory evidence.
+
+    Finite scientific outcomes never select which remaining trajectories run.
+    """
     if rows["terminal_scientific_failure"]:
         return True
     for kind in ("training", "probe"):
@@ -91,29 +94,11 @@ def _preserve_scientific_evidence(config, rows) -> bool:
             _validate_trajectory_rows(config, rows[kind], kind)
         except ValueError:
             return True
-    if rows["summary"] and rows["summary"][0].get("validity_failures"):
-        return True
-    experiment = config["rate_aware_clock"]
-    primary_steps = experiment["primary_checkpoints"]
-    lower, upper = config["forecast"]["competence"]["support"]
-    if any(row["step"] in primary_steps and not lower <= row["competence"] <= upper
-           for row in rows["training"]):
-        return True
-    if any(row["step"] in primary_steps and row["site"] == "block_2" and row["control"] == "shuffled_labels"
-           and abs(row["component_posterior_r2"]) > experiment["thresholds"]["max_shuffled_component_posterior_r2"]
-           for row in rows["probe"]):
-        return True
-    if any(value for row in rows["audit"] for value in row["intersections"].values()):
-        return True
     try:
-        _validate_grid(config, rows["training"], rows["probe"])
+        _validate_grid(config, rows["training"], rows["probe"], require_isolation=False)
     except ValueError:
         return False
-    if rows["audit"]:
-        return True
-    # A complete invalid grid must not trigger a new audit or other producer.
-    summary = analyze_rate_aware_clock(config, rows["training"], rows["probe"], [])
-    return bool(set(summary["validity_failures"]) - {"token_isolation", "invalid_configuration"})
+    return True
 
 
 def main() -> None:
@@ -128,6 +113,7 @@ def main() -> None:
                 or set(rates) != set(experiment["learning_rates"])):
             raise ValueError(f"{args.mode} requires the full configured seed/rate grid; use train/probe for subsets")
         rows = _preflight(config, args)
+        terminal_scientific_failure = rows["terminal_scientific_failure"]
         preserve = args.mode == "all" and _preserve_scientific_evidence(config, rows)
         if args.mode in ("train", "probe", "all") and not preserve:
             preflight_rate_aware_outputs(config, args.checkpoint_dir,
@@ -139,15 +125,26 @@ def main() -> None:
             if args.mode in ("probe", "all"):
                 run_rate_aware_probes(config, seeds, rates, args.checkpoint_dir,
                                       results_path=args.probe_results)
-        if args.mode in ("audit", "all") and not rows["audit"] and not preserve:
-            # Audits are one full-config snapshot even when training selects a subset.
-            audit = audit_token_isolation(config, experiment["seeds"])
-            atomic_write_rate_aware_jsonl(args.audit_results, audit)
+        if args.mode in ("audit", "all") and not rows["audit"]:
+            audit_ready = not preserve
+            if preserve and not terminal_scientific_failure:
+                # Completed trajectories need no producer, but their fixed audit
+                # is still required, independently of finite scientific outcomes.
+                try:
+                    _validate_grid(config, rows["training"], rows["probe"], require_isolation=False)
+                except ValueError:
+                    pass
+                else:
+                    audit_ready = True
+            if audit_ready:
+                audit = audit_token_isolation(config, experiment["seeds"])
+                atomic_write_rate_aware_jsonl(args.audit_results, audit)
         if args.mode in ("analyze", "all"):
             rows = {kind: read_rate_aware_jsonl(path) if Path(path).exists() else []
                     for kind, path in (("training", args.training_results),
                                        ("probe", args.probe_results), ("audit", args.audit_results))}
-            summary = analyze_rate_aware_clock(config, rows["training"], rows["probe"], rows["audit"])
+            summary = analyze_rate_aware_clock(config, rows["training"], rows["probe"], rows["audit"],
+                                               terminal_scientific_failure=terminal_scientific_failure)
             atomic_write_rate_aware_jsonl(args.summary_results, [summary])
             print(f"rate-aware clock verdict: {summary['verdict']}")
         if args.mode in ("figures", "all"):
@@ -162,7 +159,7 @@ def main() -> None:
             training, probes, audit, summaries = [read_rate_aware_jsonl(path) for path in
                 (args.training_results, args.probe_results, args.audit_results, args.summary_results)]
             for path in generate_rate_aware_clock_figures(config, training, probes, audit,
-                                                          summaries[0], args.output_dir):
+                    summaries[0], args.output_dir, terminal_scientific_failure=terminal_scientific_failure):
                 print(f"generated {path}")
     except (OSError, ValueError, TypeError, KeyError, OverflowError) as error:
         raise SystemExit(f"rate-aware clock preflight or execution failed: {error}") from error

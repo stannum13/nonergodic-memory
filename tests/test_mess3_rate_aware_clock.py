@@ -941,6 +941,54 @@ def test_analysis_supported_seed_equal_frozen_forecasts():
     assert all(row["observations"] == 14 for row in primary["per_seed"])
 
 
+@pytest.mark.parametrize("complete", [False, True])
+def test_analysis_terminal_execution_failure_is_explicit_and_json_safe(complete):
+    fixture = _synthetic_analysis_grid()
+    if not complete:
+        fixture[2].pop()
+    analyze = _api("analyze_rate_aware_clock")
+    ordinary = analyze(*fixture)
+    assert analyze(*fixture, terminal_scientific_failure=False) == ordinary
+    failed = analyze(*fixture, terminal_scientific_failure=True)
+    assert failed["terminal_scientific_failure"] is True
+    assert failed["verdict"] == "inconclusive"
+    assert "terminal_scientific_failure" in failed["validity_failures"]
+    assert failed["primary"] == ordinary["primary"]
+    assert failed["thresholds"] == ordinary["thresholds"]
+    if complete:
+        assert ordinary["verdict"] == "supported"
+        assert failed["validity_failures"] == ["terminal_scientific_failure"]
+    else:
+        assert "invalid_grid" in failed["validity_failures"]
+    json.dumps(failed, allow_nan=False)
+
+
+@pytest.mark.parametrize("value", ["true", 1, None])
+def test_analysis_terminal_failure_evidence_requires_boolean(value):
+    with pytest.raises(ValueError, match="boolean"):
+        _api("analyze_rate_aware_clock")(*_synthetic_analysis_grid(), terminal_scientific_failure=value)
+
+
+@pytest.mark.parametrize("summary_failed,evidence_failed", [(True, True), (True, False), (False, True)])
+def test_figures_recompute_with_explicit_terminal_execution_evidence(tmp_path, monkeypatch, summary_failed, evidence_failed):
+    fixture = _synthetic_analysis_grid()
+    summary = _analyze(fixture)
+    if summary_failed:
+        summary.update(verdict="inconclusive", terminal_scientific_failure=True,
+                       validity_failures=["terminal_scientific_failure"])
+    figures = _figure_api()
+    if summary_failed == evidence_failed:
+        paths = figures.generate_rate_aware_clock_figures(*fixture, summary, tmp_path,
+                                                          terminal_scientific_failure=evidence_failed)
+        assert len(paths) == 2
+    else:
+        monkeypatch.setattr(figures.plt, "subplots", lambda *a, **k: pytest.fail("unmatched execution evidence reached plotting"))
+        kwargs = {"terminal_scientific_failure": True} if evidence_failed else {}
+        with pytest.raises(ValueError, match="summary"):
+            figures.generate_rate_aware_clock_figures(*fixture, summary, tmp_path / "figures", **kwargs)
+        assert not (tmp_path / "figures").exists()
+
+
 def test_analysis_valid_falsified_and_zero_competence_denominator():
     summary = _analyze(_synthetic_analysis_grid("competence"))
     assert summary["verdict"] == "falsified"
