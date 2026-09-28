@@ -53,7 +53,27 @@ def passes_feasibility_gates(
         <= metrics["natural_rms_p95"],
         "identity": metrics["identity_max_abs_error"] <= gates["identity_atol"],
         "exact_operator": metrics["exact_max_abs_error"] <= gates["exact_atol"],
-        "finite": bool(np.all(np.isfinite(list(metrics.values())))),
+        "finite": bool(
+            np.all(
+                np.isfinite(
+                    [
+                        metrics[key]
+                        for key in (
+                            "component_r2",
+                            "joint_r2",
+                            "actuator_rank",
+                            "actuator_constraint_relative_error",
+                            "displacement_relative_error",
+                            "oracle_denominator",
+                            "edit_rms_p95",
+                            "natural_rms_p95",
+                            "identity_max_abs_error",
+                            "exact_max_abs_error",
+                        )
+                    ]
+                )
+            )
+        ),
     }
 
 
@@ -181,9 +201,22 @@ def validate_complete_evidence(
     doses: tuple[float, ...],
     random_controls: int,
     examples_per_cell: int,
+    split_sizes: dict[str, int],
+    gates: dict[str, float],
+    experiment_digest: str,
+    require_responses: bool = True,
 ) -> list[str]:
     """Validate the exact registered raw grid before a scientific verdict."""
     errors: list[str] = []
+    if any(
+        row.get("record_type") not in {"split_audit", "calibration", "response"}
+        for row in records
+    ):
+        errors.append("raw evidence contains an unknown record type")
+    if any(
+        row.get("experiment_config_sha256") != experiment_digest for row in records
+    ):
+        errors.append("raw evidence has a missing or wrong experiment digest")
     cohorts = {"development": development_seeds, "heldout": heldout_seeds}
     split_rows = [row for row in records if row.get("record_type") == "split_audit"]
     expected_splits = {
@@ -194,6 +227,17 @@ def validate_complete_evidence(
         errors.append("split audit grid is incomplete or duplicated")
     if any(row.get("overlap_count") != 0 for row in split_rows):
         errors.append("split audit contains overlapping prefixes")
+    for index, row in enumerate(split_rows):
+        if row.get("split_sizes") != split_sizes:
+            errors.append(f"split row {index} has wrong registered sizes")
+        hashes = row.get("split_hashes")
+        if not isinstance(hashes, dict) or set(hashes) != set(split_sizes) or any(
+            not isinstance(value, str)
+            or len(value) != 64
+            or any(character not in "0123456789abcdef" for character in value)
+            for value in (hashes or {}).values()
+        ):
+            errors.append(f"split row {index} has invalid hashes")
 
     calibration_rows = [
         row for row in records if row.get("record_type") == "calibration"
@@ -212,26 +256,48 @@ def validate_complete_evidence(
         actual_calibrations
     ) != len(expected_calibrations):
         errors.append("calibration grid is incomplete or duplicated")
-    if any(not np.all(np.isfinite([value for key, value in row.items() if key in {
-        "component_r2", "joint_r2", "actuator_rank",
-        "actuator_constraint_relative_error", "displacement_relative_error",
-        "oracle_denominator", "edit_rms_p95", "natural_rms_p95",
-        "identity_max_abs_error", "exact_max_abs_error",
-    }])) for row in calibration_rows):
-        errors.append("calibration grid contains nonfinite metrics")
+    calibration_metrics = {
+        "component_r2",
+        "joint_r2",
+        "actuator_rank",
+        "actuator_constraint_relative_error",
+        "displacement_relative_error",
+        "oracle_denominator",
+        "edit_rms_p95",
+        "natural_rms_p95",
+        "identity_max_abs_error",
+        "exact_max_abs_error",
+    }
+    for index, row in enumerate(calibration_rows):
+        if not calibration_metrics.issubset(row):
+            errors.append(f"calibration row {index} lacks required metrics")
+            continue
+        if not np.all(np.isfinite([row[key] for key in calibration_metrics])):
+            errors.append(f"calibration row {index} contains nonfinite metrics")
+        checks = passes_feasibility_gates(row, gates)
+        if row.get("checks") != checks or row.get("passed") != all(checks.values()):
+            errors.append(f"calibration row {index} has forged gate status")
+        checkpoint_hash = row.get("checkpoint_sha256")
+        if (
+            not isinstance(row.get("checkpoint"), str)
+            or not isinstance(checkpoint_hash, str)
+            or len(checkpoint_hash) != 64
+        ):
+            errors.append(f"calibration row {index} has invalid checkpoint provenance")
 
     response_rows = [row for row in records if row.get("record_type") == "response"]
     expected_responses = set()
-    for cohort, seeds in cohorts.items():
-        for seed in seeds:
-            for step in steps:
-                for dose in doses:
-                    expected_responses.add((cohort, seed, step, dose, "learned", None))
-                    expected_responses.add((cohort, seed, step, dose, "shuffled", None))
-                    for random_index in range(random_controls):
-                        expected_responses.add(
-                            (cohort, seed, step, dose, "random", random_index)
-                        )
+    if require_responses:
+        for cohort, seeds in cohorts.items():
+            for seed in seeds:
+                for step in steps:
+                    for dose in doses:
+                        expected_responses.add((cohort, seed, step, dose, "learned", None))
+                        expected_responses.add((cohort, seed, step, dose, "shuffled", None))
+                        for random_index in range(random_controls):
+                            expected_responses.add(
+                                (cohort, seed, step, dose, "random", random_index)
+                            )
     actual_responses = [
         (
             row.get("cohort"),
@@ -267,6 +333,8 @@ def validate_complete_evidence(
             errors.append(f"response row {index} contains nonfinite evidence")
         if denominator <= 0 or np.any(per_denominator <= 0):
             errors.append(f"response row {index} has nonpositive denominator")
+        if numerator < 0 or np.any(per_numerator < 0):
+            errors.append(f"response row {index} has negative squared-error evidence")
         if len(per_numerator) != examples_per_cell or len(per_denominator) != examples_per_cell:
             errors.append(f"response row {index} has wrong contribution count")
         if not np.isclose(per_numerator.sum(), numerator, rtol=1e-10, atol=1e-12):
@@ -278,6 +346,115 @@ def validate_complete_evidence(
         ):
             errors.append(f"response row {index} score disagrees")
     return sorted(set(errors))
+
+
+def analyze_evidence(
+    records: list[dict], summary: dict, config: dict, experiment_digest: str
+) -> dict:
+    """Recompute the allowed stage, validity, and scientific verdict from raw rows."""
+    development = tuple(int(seed) for seed in config["models"]["development_seeds"])
+    heldout = tuple(int(seed) for seed in config["models"]["heldout_seeds"])
+    steps = tuple(int(step) for step in config["models"]["checkpoints"])
+    primary_step = int(config["models"]["primary_checkpoint"])
+    doses = tuple(float(dose) for dose in config["experiment"]["doses"] if dose)
+    common = {
+        "doses": doses,
+        "random_controls": int(config["experiment"]["random_controls"]),
+        "examples_per_cell": int(config["data"]["evaluation"]),
+        "split_sizes": {name: int(value) for name, value in config["data"].items()},
+        "gates": config["gates"],
+        "experiment_digest": experiment_digest,
+    }
+    status = summary.get("status")
+    stage = summary.get("stage")
+    errors: list[str] = []
+    decision: dict = {}
+    if status == "actuator_infeasible" and stage == "development":
+        errors.extend(
+            validate_complete_evidence(
+                records,
+                development_seeds=development,
+                heldout_seeds=(),
+                steps=(primary_step,),
+                require_responses=False,
+                **common,
+            )
+        )
+        calibration = [row for row in records if row.get("record_type") == "calibration"]
+        if calibration and all(row.get("passed") for row in calibration):
+            errors.append("actuator-infeasible summary has no failed development gate")
+    elif status == "invalid_pilot" and stage == "heldout_calibration":
+        development_rows = [row for row in records if row.get("cohort") == "development"]
+        heldout_rows = [row for row in records if row.get("cohort") == "heldout"]
+        errors.extend(
+            validate_complete_evidence(
+                development_rows,
+                development_seeds=development,
+                heldout_seeds=(),
+                steps=steps,
+                **common,
+            )
+        )
+        errors.extend(
+            validate_complete_evidence(
+                heldout_rows,
+                development_seeds=(),
+                heldout_seeds=heldout,
+                steps=(primary_step,),
+                require_responses=False,
+                **common,
+            )
+        )
+        calibrations = [
+            row for row in heldout_rows if row.get("record_type") == "calibration"
+        ]
+        if calibrations and all(row.get("passed") for row in calibrations):
+            errors.append("invalid heldout summary has no failed heldout gate")
+    elif status in {"criterion_not_met", "promising_pilot"} and stage == "complete":
+        errors.extend(
+            validate_complete_evidence(
+                records,
+                development_seeds=development,
+                heldout_seeds=heldout,
+                steps=steps,
+                **common,
+            )
+        )
+        if not errors:
+            decision = classify_pilot(
+                [row for row in records if row.get("record_type") == "response"],
+                heldout_seeds=heldout,
+                primary_step=primary_step,
+                doses=doses,
+                random_controls=common["random_controls"],
+                examples_per_cell=common["examples_per_cell"],
+                mean_score_min=float(config["decision"]["mean_score_min"]),
+                control_margin_min=float(config["decision"]["control_margin_min"]),
+            )
+            if decision.get("status") != status:
+                errors.append("stored status disagrees with recomputed decision")
+            for key, value in decision.items():
+                if key == "status":
+                    continue
+                stored = summary.get(key)
+                if isinstance(value, float):
+                    if stored is None or not np.isclose(stored, value, rtol=1e-12, atol=1e-14):
+                        errors.append(f"stored summary field {key} disagrees")
+                elif stored != value:
+                    errors.append(f"stored summary field {key} disagrees")
+    else:
+        errors.append("summary stage/status is not an allowed scientific terminal state")
+    if summary.get("result_rows") != len(records):
+        errors.append("stored result row count disagrees")
+    if summary.get("config_sha256") != experiment_digest:
+        errors.append("stored summary config digest disagrees")
+    return {
+        "status": status,
+        "stage": stage,
+        "valid": not errors,
+        "validity_errors": sorted(set(errors)),
+        **decision,
+    }
 
 
 def joint_belief(component: ArrayLike, conditional_state: ArrayLike) -> FloatArray:

@@ -24,6 +24,7 @@ from nonergodic_memory.experiment import (
 )
 from nonergodic_memory.predictive_memory import (
     CalibrationResult,
+    analyze_evidence,
     calibrate_memory,
     classify_pilot,
     evaluate_responses,
@@ -239,12 +240,20 @@ def _evaluate(
     return rows
 
 
-def run_registered(config_path: Path, results_path: Path, summary_path: Path) -> dict:
+def run_registered(
+    config_path: Path,
+    results_path: Path,
+    summary_path: Path,
+    reservation_state: dict[str, bool] | None = None,
+) -> dict:
     experiment = load_config(config_path)
     validate_registered_config(experiment)
     attempt_path = results_path.with_name(results_path.stem + "_attempt.jsonl")
-    preflight_outputs((results_path, summary_path, attempt_path))
+    command_path = results_path.with_name(results_path.stem + "_command.jsonl")
+    preflight_outputs((results_path, summary_path, attempt_path, command_path))
     reserve_run(attempt_path, REGISTERED_CONFIG_DIGEST)
+    if reservation_state is not None:
+        reservation_state["owned"] = True
     set_seed(20260928)
     sizes = {name: int(value) for name, value in experiment["data"].items()}
     prefix_length = int(experiment["experiment"]["prefix_length"])
@@ -258,6 +267,19 @@ def run_registered(config_path: Path, results_path: Path, summary_path: Path) ->
         for record in records:
             record.setdefault("experiment_config_sha256", REGISTERED_CONFIG_DIGEST)
         atomic_write_jsonl(results_path, records)
+
+    def finish(summary: dict) -> dict:
+        analysis = analyze_evidence(
+            records, summary, experiment, REGISTERED_CONFIG_DIGEST
+        )
+        if not analysis["valid"]:
+            raise ValueError(
+                "predictive-memory evidence failed terminal analysis: "
+                + "; ".join(analysis["validity_errors"])
+            )
+        atomic_write_jsonl(summary_path, [summary])
+        append_attempt(attempt_path, {"event": "finished", "status": summary["status"]})
+        return summary
 
     development = tuple(int(seed) for seed in experiment["models"]["development_seeds"])
     heldout = tuple(int(seed) for seed in experiment["models"]["heldout_seeds"])
@@ -299,9 +321,7 @@ def run_registered(config_path: Path, results_path: Path, summary_path: Path) ->
             "elapsed_seconds": time.monotonic() - start,
             **runtime_provenance(),
         }
-        atomic_write_jsonl(summary_path, [summary])
-        append_attempt(attempt_path, {"event": "finished", "status": summary["status"]})
-        return summary
+        return finish(summary)
 
     # Development behavior is descriptive and cannot change the frozen held-out design.
     for seed in development:
@@ -366,9 +386,7 @@ def run_registered(config_path: Path, results_path: Path, summary_path: Path) ->
             "elapsed_seconds": time.monotonic() - start,
             **runtime_provenance(),
         }
-        atomic_write_jsonl(summary_path, [summary])
-        append_attempt(attempt_path, {"event": "finished", "status": summary["status"]})
-        return summary
+        return finish(summary)
 
     for seed in heldout:
         calibration, mixture, model = heldout_calibrations[seed]
@@ -416,21 +434,12 @@ def run_registered(config_path: Path, results_path: Path, summary_path: Path) ->
         doses=doses,
         random_controls=int(experiment["experiment"]["random_controls"]),
         examples_per_cell=int(experiment["data"]["evaluation"]),
+        split_sizes=sizes,
+        gates=experiment["gates"],
+        experiment_digest=REGISTERED_CONFIG_DIGEST,
     )
     if evidence_errors:
-        summary = {
-            "record_type": "summary",
-            "status": "invalid_pilot",
-            "stage": "complete_evidence_validation",
-            "validity_errors": evidence_errors,
-            "config_sha256": config_digest(experiment),
-            "result_rows": len(records),
-            "elapsed_seconds": time.monotonic() - start,
-            **runtime_provenance(),
-        }
-        atomic_write_jsonl(summary_path, [summary])
-        append_attempt(attempt_path, {"event": "finished", "status": summary["status"]})
-        return summary
+        raise ValueError("complete evidence invalid: " + "; ".join(evidence_errors))
     decision = classify_pilot(
         response_rows,
         heldout_seeds=heldout,
@@ -450,9 +459,7 @@ def run_registered(config_path: Path, results_path: Path, summary_path: Path) ->
         "elapsed_seconds": time.monotonic() - start,
         **runtime_provenance(),
     }
-    atomic_write_jsonl(summary_path, [summary])
-    append_attempt(attempt_path, {"event": "finished", "status": summary["status"]})
-    return summary
+    return finish(summary)
 
 
 def main() -> None:
@@ -461,11 +468,14 @@ def main() -> None:
     parser.add_argument("--results", type=Path, default=RESULTS_PATH)
     parser.add_argument("--summary", type=Path, default=SUMMARY_PATH)
     args = parser.parse_args()
+    reservation_state = {"owned": False}
     try:
-        summary = run_registered(args.config, args.results, args.summary)
+        summary = run_registered(
+            args.config, args.results, args.summary, reservation_state=reservation_state
+        )
     except Exception as error:
         attempt_path = args.results.with_name(args.results.stem + "_attempt.jsonl")
-        if attempt_path.exists() and not args.summary.exists():
+        if reservation_state["owned"] and attempt_path.exists() and not args.summary.exists():
             failure = {
                 "record_type": "summary",
                 "status": "inconclusive_execution_error",

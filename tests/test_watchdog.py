@@ -18,10 +18,12 @@ def test_watchdog_records_timeout_and_kills_child(tmp_path: Path):
     assert row["stage"] == "external_watchdog"
 
 
-def test_watchdog_returns_success_without_writing_summary(tmp_path: Path):
-    summary = tmp_path / "summary.jsonl"
+def test_watchdog_records_success_after_entire_child_command(tmp_path: Path):
+    summary = tmp_path / "command.jsonl"
     code = run_with_timeout(
         [sys.executable, "-c", "pass"], seconds=2, timeout_summary=summary
     )
     assert code == 0
-    assert not summary.exists()
+    row = json.loads(summary.read_text(encoding="utf-8"))
+    assert row["status"] == "complete"
+    assert row["child_exit_code"] == 0

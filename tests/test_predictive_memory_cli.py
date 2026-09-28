@@ -37,6 +37,7 @@ def test_failed_development_gate_never_opens_heldout(tmp_path: Path, monkeypatch
     events = []
     loader, mixture = _mock_loader(tmp_path, events)
     monkeypatch.setattr(cli, "validate_registered_config", lambda config: None)
+    monkeypatch.setattr(cli, "analyze_evidence", lambda *args, **kwargs: {"valid": True, "validity_errors": []})
     monkeypatch.setattr(cli, "_load_registered_checkpoint", loader)
 
     def calibrate(experiment, seed, step, cohort, splits):
@@ -60,6 +61,7 @@ def test_all_heldout_calibrations_finish_before_any_heldout_response(
     events = []
     loader, mixture = _mock_loader(tmp_path, events)
     monkeypatch.setattr(cli, "validate_registered_config", lambda config: None)
+    monkeypatch.setattr(cli, "analyze_evidence", lambda *args, **kwargs: {"valid": True, "validity_errors": []})
     monkeypatch.setattr(cli, "_load_registered_checkpoint", loader)
 
     def calibrate(experiment, seed, step, cohort, splits):
@@ -84,3 +86,58 @@ def test_all_heldout_calibrations_finish_before_any_heldout_response(
     heldout_evaluations = [event for event in events if event[:2] == ("evaluate", "heldout")]
     assert {event[2] for event in heldout_calibrations} == {20, 21, 22, 23, 24}
     assert heldout_evaluations == []
+
+
+def test_success_path_calibrates_all_heldout_models_before_first_response(
+    tmp_path: Path, monkeypatch
+):
+    events = []
+    loader, mixture = _mock_loader(tmp_path, events)
+    monkeypatch.setattr(cli, "validate_registered_config", lambda config: None)
+    monkeypatch.setattr(cli, "_load_registered_checkpoint", loader)
+    monkeypatch.setattr(cli, "analyze_evidence", lambda *args, **kwargs: {"valid": True, "validity_errors": []})
+    monkeypatch.setattr(cli, "validate_complete_evidence", lambda *args, **kwargs: [])
+    monkeypatch.setattr(
+        cli,
+        "classify_pilot",
+        lambda *args, **kwargs: {
+            "status": "criterion_not_met",
+            "seed_scores": {},
+            "mean_learned_score": 0.0,
+            "mean_shuffled_score": 0.0,
+            "mean_random_score": 0.0,
+            "shuffled_margin": 0.0,
+            "random_margin": 0.0,
+            "all_heldout_positive": False,
+        },
+    )
+
+    def calibrate(experiment, seed, step, cohort, splits):
+        events.append(("calibrate", cohort, seed, step))
+        row = {"record_type": "calibration", "seed": seed, "step": step, "cohort": cohort, "passed": True}
+        return object(), row, (mixture, object())
+
+    def evaluate(experiment, seed, step, cohort, splits, calibration, loaded_mixture, model):
+        events.append(("evaluate", cohort, seed, step))
+        return []
+
+    monkeypatch.setattr(cli, "_calibrate", calibrate)
+    monkeypatch.setattr(cli, "_evaluate", evaluate)
+    summary = cli.run_registered(
+        _tiny_registered_config(tmp_path),
+        tmp_path / "results.jsonl",
+        tmp_path / "summary.jsonl",
+    )
+    assert summary["status"] == "criterion_not_met"
+    first_heldout_evaluation = next(
+        index
+        for index, event in enumerate(events)
+        if event[:2] == ("evaluate", "heldout")
+    )
+    trained_heldout_calibrations = [
+        index
+        for index, event in enumerate(events)
+        if event[:2] == ("calibrate", "heldout") and event[3] == 3072
+    ]
+    assert len(trained_heldout_calibrations) == 5
+    assert max(trained_heldout_calibrations) < first_heldout_evaluation

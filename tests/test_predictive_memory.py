@@ -31,6 +31,7 @@ from predictive_memory import (
     preflight_outputs,
     reserve_run,
     validate_registered_config,
+    run_registered,
 )
 
 
@@ -353,6 +354,18 @@ def test_complete_evidence_validator_rejects_missing_registered_cells():
         doses=(-0.693, 0.693),
         random_controls=8,
         examples_per_cell=128,
+        split_sizes={"actuator_fit": 2048, "decoder_fit": 1024, "calibration": 128, "evaluation": 128},
+        gates={
+            "component_r2_min": 0.2,
+            "joint_r2_min": 0.5,
+            "actuator_rank_min": 5,
+            "actuator_constraint_relative_error_max": 1e-10,
+            "displacement_relative_error_max": 0.5,
+            "oracle_denominator_min": 1e-6,
+            "identity_atol": 1e-6,
+            "exact_atol": 1e-10,
+        },
+        experiment_digest="digest",
     )
     assert any("split" in error for error in errors)
     assert any("calibration" in error for error in errors)
@@ -392,3 +405,22 @@ def test_run_reservation_is_exclusive(tmp_path: Path):
     reserve_run(marker, "digest")
     with pytest.raises(FileExistsError):
         reserve_run(marker, "digest")
+
+
+def test_rejected_invocation_does_not_mutate_active_attempt(tmp_path: Path):
+    results = tmp_path / "predictive_memory.jsonl"
+    summary = tmp_path / "predictive_memory_summary.jsonl"
+    attempt = tmp_path / "predictive_memory_attempt.jsonl"
+    attempt.write_text('{"event":"started"}\n', encoding="utf-8")
+    before = attempt.read_bytes()
+    state = {"owned": False}
+    with pytest.raises(FileExistsError):
+        run_registered(
+            Path("configs/predictive_memory.yaml"),
+            results,
+            summary,
+            reservation_state=state,
+        )
+    assert state == {"owned": False}
+    assert attempt.read_bytes() == before
+    assert not summary.exists()

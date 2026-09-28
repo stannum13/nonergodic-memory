@@ -9,8 +9,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from .experiment import load_config
-from .predictive_memory import classify_pilot
+from .experiment import config_digest, load_config
+from .predictive_memory import analyze_evidence
 
 
 def _read_jsonl(path: str | Path) -> list[dict]:
@@ -47,6 +47,14 @@ def generate_predictive_memory_figure(
         "promising_pilot",
     }:
         raise ValueError(f"unsupported predictive-memory terminal status: {status}")
+    config_path = Path(__file__).resolve().parents[2] / "configs/predictive_memory.yaml"
+    config = load_config(config_path)
+    analysis = analyze_evidence(rows, summaries[0], config, config_digest(config))
+    if not analysis["valid"]:
+        raise ValueError(
+            "predictive-memory evidence/summary mismatch: "
+            + "; ".join(analysis["validity_errors"])
+        )
     calibration = [
         row
         for row in rows
@@ -89,20 +97,6 @@ def generate_predictive_memory_figure(
     if response:
         if status not in {"criterion_not_met", "promising_pilot"}:
             raise ValueError("response evidence conflicts with terminal summary")
-        config_path = Path(__file__).resolve().parents[2] / "configs/predictive_memory.yaml"
-        config = load_config(config_path)
-        recomputed = classify_pilot(
-            response,
-            heldout_seeds=tuple(config["models"]["heldout_seeds"]),
-            primary_step=int(config["models"]["primary_checkpoint"]),
-            doses=tuple(float(dose) for dose in config["experiment"]["doses"] if dose),
-            random_controls=int(config["experiment"]["random_controls"]),
-            examples_per_cell=int(config["data"]["evaluation"]),
-            mean_score_min=float(config["decision"]["mean_score_min"]),
-            control_margin_min=float(config["decision"]["control_margin_min"]),
-        )
-        if recomputed["status"] != status:
-            raise ValueError("response evidence does not reproduce terminal verdict")
         seeds = sorted({int(row["seed"]) for row in response})
         controls = ("learned", "shuffled", "random")
         for control in controls:

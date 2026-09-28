@@ -13,31 +13,42 @@ from pathlib import Path
 def run_with_timeout(
     command: list[str], *, seconds: float, timeout_summary: str | Path
 ) -> int:
+    destination = Path(timeout_summary)
+
+    def write_status(record: dict) -> None:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        with destination.open("x", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, sort_keys=True) + "\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+
     process = subprocess.Popen(command, start_new_session=True)
     try:
-        return int(process.wait(timeout=seconds))
+        code = int(process.wait(timeout=seconds))
+        write_status(
+            {
+                "record_type": "command_status",
+                "status": "complete" if code == 0 else "inconclusive_execution_error",
+                "child_exit_code": code,
+            }
+        )
+        return code
     except subprocess.TimeoutExpired:
         os.killpg(process.pid, signal.SIGKILL)
         process.wait()
-        destination = Path(timeout_summary)
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        if not destination.exists():
-            with destination.open("x", encoding="utf-8") as handle:
-                handle.write(
-                    json.dumps(
-                        {
-                            "record_type": "summary",
-                            "status": "inconclusive_timeout",
-                            "stage": "external_watchdog",
-                            "wall_time_seconds": seconds,
-                        },
-                        sort_keys=True,
-                    )
-                    + "\n"
-                )
-                handle.flush()
-                os.fsync(handle.fileno())
-        attempt = destination.with_name(destination.name.replace("_summary", "_attempt"))
+        write_status(
+            {
+                "record_type": "command_status",
+                "status": "inconclusive_timeout",
+                "stage": "external_watchdog",
+                "wall_time_seconds": seconds,
+            }
+        )
+        attempt = destination.with_name(
+            destination.name.replace("_command", "_attempt").replace(
+                "_summary", "_attempt"
+            )
+        )
         if attempt != destination and attempt.exists():
             with attempt.open("a", encoding="utf-8") as handle:
                 handle.write(
