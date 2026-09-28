@@ -311,3 +311,12 @@ status rules. The dated clarification is public in
 summary, attempt record, or figure existed at this lock. The next action is a
 second independent implementation audit; only an approval permits the one
 registered `make predictive-memory` run.
+
+**Execution approved 2026-09-28.** After two blocking review rounds and their
+fixes, independent theory, causal, and methods reviewers approved implementation
+HEAD `2be13f87ce05749675291f34dfbe66d74fd911ea` with no remaining Critical or
+Important findings. A fresh full verification passed 508 tests in 261.47 seconds.
+The outer command reservation, scientific attempt record, raw result, scientific
+summary, command status, and figure were all absent. The only permitted next
+action is the single fixed `make predictive-memory` execution; no implementation
+or criterion may change in response to its measurements.
