@@ -1,4 +1,4 @@
-.PHONY: smoke train reproduce reproduce-mess3 diagnose-mess3 threshold-mess3 competence-time extension figures sweep-overlap sweep-length sweep-components sweep-width sweep-depth sweep-interaction sweep-context-restart sweep-position-restart sweep-short-context sweep-budget-context sweep-gru-budget-context test clean-results
+.PHONY: smoke train reproduce reproduce-mess3 diagnose-mess3 threshold-mess3 competence-time rate-aware-clock extension figures sweep-overlap sweep-length sweep-components sweep-width sweep-depth sweep-interaction sweep-context-restart sweep-position-restart sweep-short-context sweep-budget-context sweep-gru-budget-context test clean-results
 
 PYTHON ?= python3
 export PYTHONPATH := src:$(PYTHONPATH)
@@ -23,6 +23,9 @@ threshold-mess3:
 
 competence-time:
 	bash scripts/mess3_competence_time.sh
+
+rate-aware-clock:
+	bash scripts/mess3_rate_aware_clock.sh
 
 extension:
 	bash scripts/extension.sh

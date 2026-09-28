@@ -10,6 +10,16 @@ A separately registered direct Mess3 experiment now matches the paper's source p
 
 A five-seed, two-learning-rate confirmation then tests whether predictive competence aligns component geometry better than optimizer step. The registered claim fails in all held-out seeds: competence-only leave-one-seed-out MSE is 0.013170 versus 0.005537 for log-step, a ratio of 2.378 rather than the predicted value below 0.80. Shuffled controls pass. A post-hoc analysis excluding initialization reverses the ratio to 0.477, revealing sensitivity to an extreme initialization regime but not rescuing the preregistered result.
 
+A new preregistered post-initialization experiment on seeds 30–37 supports
+competence against rate-unaware log-step: LOSO MSE ratio 0.457232, with all
+eight seed folds favoring competence. An exploratory old-data comparison then
+motivated a separate frozen rate-aware-clock forecast on new seeds 40–47.
+That external prediction is **falsified**: clock MSE is 0.008177847709 versus
+competence MSE 0.006933045029, ratio 1.179546314010, with clock wins in only
+four seeds. All registered validity checks pass. The earlier verdicts remain
+unchanged, and none of these forecast comparisons establishes causal use of
+decoded geometry.
+
 ## Relation to the target result
 
 Ray, Riechers, and Shai derive a telescoping belief geometry for nonergodic compositions and report that a linear map from Transformer residual activations recovers weighted beliefs for two Mess3 sources with held-out R² near 0.985, versus about 0.45 for an untrained network. The earlier experiments below are a conceptual reproduction using conventional two-state HMMs and smaller models. The new direct Mess3 experiment matches the source process through an exact transition/emission factorization, while retaining a smaller network and different training protocol. Detailed correspondences and non-equivalences are recorded in `paper_notes.md` and the fidelity table below.
@@ -123,13 +133,100 @@ The shuffled-label range is −0.01074 to 0.01069, so the registered control pas
 
 Learning dynamics still show an orderly rate shift. At learning rate 0.003, mean block-2 component R² is 0.005/0.141/0.281/0.363 at steps 768/1,536/2,304/3,072. At learning rate 0.0015 it is −0.002/0.006/0.127/0.238. Final predictive competence is 0.850 and 0.814 respectively. Joint-belief R² reaches 0.684/0.628 and pairwise-distance R² becomes positive at both rates.
 
-Initialization complicates the chosen global functional form. Its mean competence is about −11.8, whereas post-initialization checkpoints lie near 0–0.85. An explicitly post-hoc sensitivity analysis applying the same LOSO comparison only to `step > 0` favors competence in every seed: pooled competence MSE is 0.002048 versus step MSE 0.004298, ratio 0.477. This is evidence that trained checkpoints may follow a competence-aligned regime, but it was discovered after the registered result and cannot convert the primary failure into a success. A future test must preregister a two-regime model and use new seeds.
+Initialization complicates the chosen global functional form. Its mean competence is about −11.8, whereas post-initialization checkpoints lie near 0–0.85. An explicitly post-hoc sensitivity analysis applying the same LOSO comparison only to `step > 0` favors competence in every seed: pooled competence MSE is 0.002048 versus step MSE 0.004298, ratio 0.477. This is evidence that trained checkpoints may follow a competence-aligned regime, but it was discovered after the registered result and cannot convert the primary failure into a success. This motivated the separately preregistered new-seed test below.
 
 The general vectorized HMM sampler is distribution-tested against component, initial-state, transition, and emission probabilities. On 64 length-64 Mess3 sequences its 20-repeat median is 0.002622 seconds versus 0.062623 for the reference sampler, a 23.9× speedup. The complete registered command took 1,857 seconds wall time after reusing one 136.65-second pilot. This benchmark establishes feasibility only; it does not explain the earlier diagnosis command's wall/user-time discrepancy.
 
+### Preregistered competence–time dissociation
+
+The separate [competence–time experiment](experiments/competence_time/RESULTS.md)
+locked its implementation at `667d96213ff1140bd624276febfac9180c3fb3be` before
+confirmation. Seeds 30–37, four learning rates, and eight post-initialization
+checkpoints provide 256 primary observations. Initialization is retained as
+a separate control and excluded prospectively from both regressions. Each
+LOSO fold holds out all 32 observations for one seed.
+
+The registered verdict is **supported**: competence MSE 0.008194242898 versus
+rate-unaware log-step MSE 0.017921418299, ratio 0.457231830704, with competence
+wins in all eight folds. All validity checks pass. This supports the specified
+post-initialization comparator; it neither repairs the earlier global
+threshold failure nor establishes superiority to every optimization clock.
+The retained 288 training and 1,728 probe rows, summary, figures, and verdict
+are unchanged by subsequent work.
+
+### Frozen rate-aware-clock external validation
+
+An explicitly exploratory comparison on those old seeds found a stronger
+equal-capacity alternative: quadratic `log1p(learning_rate * step)` achieved
+LOSO MSE 0.006086 versus competence's 0.008194, winning six of eight folds.
+That observation selected a new hypothesis. The [rate-aware protocol](experiments/rate_aware_clock/PROTOCOL.md)
+froze both three-coefficient forecasts on all 256 eligible old rows, including
+their standardization, target, support, and source hashes, before training any
+new seed. Forecasts were never refitted on confirmation geometry.
+
+The approved code lock `933f50fc22e72ce4f264b811fc09e039bfe10cad` and published
+documentation lock `d1b388054a2cf5ebbac3040a8346f80faf1082a3` preceded execution.
+Configuration digest `59f938bbff48f300` fixes seeds 40–47, rates 0.003/0.006,
+and checkpoints 0/384/768/1152/1536/2048/2560/3072. Each seed contributes 14
+normal-control post-initialization block-2 component-posterior R² observations.
+Seed MSEs receive equal weight. The clock hypothesis requires aggregate
+clock/competence MSE strictly below 0.80 and clock wins in at least seven seeds.
+
+| New seed | Clock MSE | Competence MSE | Lower error |
+| --- | ---: | ---: | --- |
+| 40 | 0.010231742462 | 0.008153224910 | Competence |
+| 41 | 0.004013622241 | 0.004337112668 | Clock |
+| 42 | 0.007212014395 | 0.010048444470 | Clock |
+| 43 | 0.009417730905 | 0.010956017338 | Clock |
+| 44 | 0.001800450704 | 0.005384855628 | Clock |
+| 45 | 0.009554464067 | 0.003234835335 | Competence |
+| 46 | 0.015234590842 | 0.010090064076 | Competence |
+| 47 | 0.007958166058 | 0.003259805810 | Competence |
+| Seed-equal mean | 0.008177847709 | 0.006933045029 | Competence |
+
+The frozen verdict is **falsified**. The ratio **1.1795463140097937** fails
+the strict effect criterion, and **4/8** clock wins fail the seed criterion.
+The descriptive inverse ratio is 0.8477835826560831, with four competence
+wins. This is not a newly registered competence-superiority test, and failure
+does not establish equivalence or universal competence superiority.
+
+Every registered validity condition passes. The grid has exactly 128 training,
+768 probe, eight token-audit, and one summary record, with unique keys and
+finite metrics. All 128 checkpoints and 3,840 state tensors pass identity,
+parameter-hash, and finiteness checks. Step-zero parameters match across rates
+within each seed; 16 initialization training cells and 96 initialization probe
+rows are excluded from primary errors and support checks. Shuffled component
+R² lies between −0.011172377858478355 and 0.006795481659352176, within ±0.02.
+All eight rate-dissociation differences exceed 0.10, and all primary predictors
+remain within frozen support. Deterministic reconstruction of 14,336 token
+sequences reproduces every dataset hash and all 24 zero pairwise intersections.
+Strict JSON, exact source hashes/constants, the 256-row old-data numerical
+refit, independent seed-equal scores, and fresh summary equality all pass.
+
+One uninterrupted command completed in 3,479.48 seconds wall time
+(3,114.70 user, 332.54 system), without failure, retry, seed replacement,
+post-data tuning, or additional exclusions. The two locked figures regenerate
+byte-identically solely from raw JSONLs. Full provenance, every validity check,
+artifact SHA-256s, and the complete execution log are in
+[RESULTS.md](experiments/rate_aware_clock/RESULTS.md).
+
+The old-data clock advantage did not satisfy the external transport prediction.
+This conclusion is confined to new random realizations at the selected rates,
+steps, architecture, and generator. Competence consumes contemporaneous
+held-out behavior; the clock uses predetermined metadata. Neither comparison
+identifies a causal optimization mechanism or causal use of geometry. The
+competence/geometry position mismatch is retained for comparability, and eight
+seeds provide limited power. No causal intervention was performed.
+
 ## Analytic ground truth
 
-A component `c` is sampled once per sequence. For each observed token, the filter updates joint mass
+A component `c` is sampled once per sequence with probability `w_c`, and its
+initial state has distribution `π_c`. After observing the first token, the
+filter initializes joint mass with emission matrix `B_c`:
+
+`q_0(c,s) ∝ w_c π_c(s) B_c[s,x_0]`.
+
+For each subsequent observed token (`t >= 1`), the filter updates joint mass
 
 `q_t(c,s) ∝ p(x_t | s,c) Σ_s' q_{t-1}(c,s') p(s | s',c)`.
 
@@ -319,6 +416,8 @@ The direction therefore generalizes from Transformer to GRU, although the GRU ma
 - The matched-budget improvement generalizes to the GRU but is modest (+0.0054 nats KL reduction); GRU conditional-state R² is unchanged.
 - The earlier simple two-state sources do not recreate Mess3's reachable-state geometry. The initial direct Mess3 fixed-pool experiment reproduces that process but fails the registered trained-over-untrained test. The later diagnosis shows that sequence reuse confounds predictive generalization at 768 updates, but component geometry remains absent at that budget. Fresh data plus 3,072 updates improves joint-belief recovery and makes block-2 distance R² positive in both exploratory seeds. The diagnosis has only two seeds and still falls well below the published R².
 - The registered five-seed threshold hypothesis fails: a global quadratic in competence generalizes worse than a quadratic in log-step. A post-hoc exclusion of initialization reverses the result, exposing regime sensitivity but requiring new confirmation rather than reinterpretation.
+- The separately registered post-initialization competence–time comparison supports competence against raw log-step, but a stronger exploratory rate-aware-clock advantage fails on new seeds: ratio 1.179546 and only four clock wins despite valid controls. This failure does not establish equivalence or universal competence superiority and does not weaken either earlier registered verdict.
+- The frozen forecast comparison tests new random realizations within two selected rates and a small architecture, not transport across generators, architectures, or unseen rates. Competence uses contemporaneous behavioral data and geometry pools a different position range; causal optimization mechanisms and causal use of decoded geometry remain untested.
 - The central result still covers only overlap 0.35, two components, length 32, and width 32. The exploratory one-axis sweeps and one matched 2×2 overlap-by-context grid leave most cross-axis interactions untested.
 - Erasure is based on a single linear probe fit. Iterative nullspace projection or nonlinear adversaries could find residual information not measured here.
 
