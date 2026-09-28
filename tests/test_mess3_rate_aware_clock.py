@@ -362,6 +362,92 @@ def test_training_missing_measurement_is_recorded_as_scientific_failure(tmp_path
     assert list(root.glob(".rate-aware-*/lr_0p003/*.pt")), "failed evidence must remain available"
 
 
+@pytest.mark.parametrize("kind", ["training", "probe"])
+def test_storage_missing_producer_step_is_validated_before_enrichment(tmp_path, monkeypatch, kind):
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    config = _tiny_storage_config()
+    root, output = tmp_path / "checkpoints", tmp_path / f"{kind}.jsonl"
+    if kind == "probe":
+        _api("run_rate_aware_training")(config, [3], [.003], root)
+    producer = "train_diagnostic" if kind == "training" else "evaluate_checkpoint_geometry"
+    real = getattr(module, producer)
+    def missing(*args, **kwargs):
+        rows = real(*args, **kwargs)
+        del rows[-1]["step"]
+        return rows
+    monkeypatch.setattr(module, producer, missing)
+    monkeypatch.setattr(module, "_enrich_record", lambda *a, **kw: pytest.fail("enriched unvalidated producer output"))
+    runner = _api("run_rate_aware_training" if kind == "training" else "run_rate_aware_probes")
+    with pytest.raises(ValueError, match="producer"):
+        runner(config, [3], [.003], root, results_path=output)
+    log = root / "rate_aware_clock_attempts.jsonl"
+    assert _api("read_rate_aware_jsonl")(log)[-1]["scientific_failure"] is True
+    before = log.read_bytes()
+    with pytest.raises(ValueError, match="scientific"):
+        runner(config, [3], [.003], root, results_path=output)
+    assert log.read_bytes() == before
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("kind", ["training", "probe"])
+@pytest.mark.parametrize("error_type", [KeyError, RuntimeError, Exception, OSError, TimeoutError])
+def test_storage_unknown_producer_exception_never_allows_retry(tmp_path, monkeypatch, kind, error_type):
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    config = _tiny_storage_config()
+    root, output = tmp_path / "checkpoints", tmp_path / f"{kind}.jsonl"
+    if kind == "probe":
+        _api("run_rate_aware_training")(config, [3], [.003], root)
+    producer = "train_diagnostic" if kind == "training" else "evaluate_checkpoint_geometry"
+    def fail(*args, **kwargs):
+        raise error_type("unclassified producer failure")
+    monkeypatch.setattr(module, producer, fail)
+    runner = _api("run_rate_aware_training" if kind == "training" else "run_rate_aware_probes")
+    with pytest.raises(error_type):
+        runner(config, [3], [.003], root, results_path=output)
+    log = root / "rate_aware_clock_attempts.jsonl"
+    assert _api("read_rate_aware_jsonl")(log)[-1]["scientific_failure"] is True
+    before = log.read_bytes()
+    monkeypatch.setattr(module, producer, lambda *a, **kw: pytest.fail("unclassified failure was retried"))
+    with pytest.raises(ValueError, match="scientific"):
+        runner(config, [3], [.003], root, results_path=output)
+    assert log.read_bytes() == before
+    assert not output.exists()
+
+
+@pytest.mark.parametrize("corruption", ["missing_hash", "malformed_hash", "missing_finite", "nonfinite",
+                                        "checkpoint_changed", "digest_mismatch", "unbound_changed_checkpoint"])
+def test_probe_cache_requires_verified_parameter_binding(tmp_path, monkeypatch, corruption):
+    config, root, _, _ = _storage_run(tmp_path, rates=(.003,))
+    output = tmp_path / "probes.jsonl"
+    runner = _api("run_rate_aware_probes")
+    rows = runner(config, [3], [.003], root, results_path=output)
+    row = next(row for row in rows if row["step"] == 1)
+    if corruption in ("missing_hash", "unbound_changed_checkpoint"):
+        # Removing all hashes reproduces the old optional-binding bypass.
+        for candidate in rows:
+            del candidate["parameter_sha256"]
+    elif corruption == "malformed_hash":
+        row["parameter_sha256"] = "not-a-sha256"
+    elif corruption == "missing_finite":
+        del row["parameters_finite"]
+    elif corruption == "nonfinite":
+        row["parameters_finite"] = False
+    elif corruption == "digest_mismatch":
+        row["parameter_sha256"] = "a" * 64
+    if corruption in ("checkpoint_changed", "unbound_changed_checkpoint"):
+        path = Path(row["checkpoint_path"])
+        payload = torch.load(path, weights_only=False)
+        next(iter(payload["state_dict"].values())).flatten()[0] += 1
+        torch.save(payload, path)
+    output.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    before = {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    monkeypatch.setattr(module, "evaluate_checkpoint_geometry", lambda *a, **kw: pytest.fail("invalid probe cache reached producer"))
+    with pytest.raises(ValueError, match="parameter"):
+        runner(config, [3], [.003], root, results_path=output)
+    assert before == {path: path.read_bytes() for path in tmp_path.rglob("*") if path.is_file()}
+
+
 def _api(name):
     try:
         module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")

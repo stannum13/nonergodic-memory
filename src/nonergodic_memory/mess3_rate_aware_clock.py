@@ -470,6 +470,9 @@ def _validate_trajectory_rows(config, rows, kind, *, expected_trajectory=None):
                        require_complete=False)
     except (KeyError, TypeError, OverflowError) as error:
         raise ValueError(f"invalid {kind} measurements: {error}") from error
+    if any(row.get("parameters_finite") is not True or not _is_sha256(row.get("parameter_sha256"))
+           for row in rows):
+        raise ValueError(f"{kind} rows require finite audited parameters and a SHA-256 binding")
     steps = set(config["train"]["checkpoint_steps"])
     groups = {(row["seed"], row["learning_rate"]) for row in rows}
     if expected_trajectory is not None and groups != {expected_trajectory}:
@@ -519,7 +522,7 @@ def preflight_rate_aware_outputs(config, checkpoint_root, *, training_path=None,
                 raise ValueError("raw checkpoint root mismatch")
             if cell not in identities:
                 raise ValueError("raw evidence references missing checkpoint")
-            if "parameter_sha256" in row and row["parameter_sha256"] != identities[cell]["parameter_sha256"]:
+            if row["parameter_sha256"] != identities[cell]["parameter_sha256"]:
                 raise ValueError("checkpoint parameter digest differs from raw evidence")
         for seed in config["rate_aware_clock"]["seeds"]:
             paired = {value["parameter_sha256"] for (s, _, step), value in identities.items() if s == seed and step == 0}
@@ -556,6 +559,24 @@ def _attempt_event(config, root, seed, rate, kind, status, **details):
     atomic_write_rate_aware_jsonl(path, rows)
 
 
+def _validated_producer_rows(config, rows, seed, *, expected_step=None):
+    """Validate raw identity before enrichment reads fields or loads checkpoints."""
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError("producer output must be a list of row objects")
+    normalized = []
+    try:
+        for row in rows:
+            step = _integer(row["step"])
+            if (_integer(row["seed"]) != seed or row["condition"] != "fresh"
+                    or step not in config["train"]["checkpoint_steps"]
+                    or (expected_step is not None and step != expected_step)):
+                raise ValueError("producer row does not match requested checkpoint identity")
+            normalized.append({**row, "seed": seed, "step": step})
+    except (KeyError, TypeError, ValueError, OverflowError) as error:
+        raise ValueError(f"invalid producer row: {error}") from error
+    return normalized
+
+
 def _produce_trajectory(config, root, seed, rate, kind):
     selected = _rate_config(config, rate)
     steps = config["train"]["checkpoint_steps"]
@@ -565,7 +586,7 @@ def _produce_trajectory(config, root, seed, rate, kind):
         # validated run is promoted to canonical checkpoint paths.
         staging = Path(tempfile.mkdtemp(prefix=".rate-aware-", dir=root))
         run = train_diagnostic(selected, seed, "fresh", staging / f"lr_{_rate_label(rate)}")
-        for row in run:
+        for row in _validated_producer_rows(config, run, seed):
             row = _enrich_record(row, config_digest(config), selected, rate)
             row.update(_checked_checkpoint(config, staging, seed, rate, row["step"]))
             row.update(record_type="rate_aware_clock_training", checkpoint_path=str(
@@ -586,7 +607,8 @@ def _produce_trajectory(config, root, seed, rate, kind):
         for step in steps:
             checkpoint = rate_aware_checkpoint_path(root, seed, rate, step)
             identity = _checked_checkpoint(config, root, seed, rate, step)
-            for row in evaluate_checkpoint_geometry(selected, checkpoint, seed, condition="fresh"):
+            run = evaluate_checkpoint_geometry(selected, checkpoint, seed, condition="fresh")
+            for row in _validated_producer_rows(config, run, seed, expected_step=step):
                 row = _enrich_record(row, config_digest(config), selected, rate)
                 row.update(identity)
                 row.update(record_type="rate_aware_clock_probe", checkpoint_path=str(checkpoint))
@@ -619,8 +641,11 @@ def _run_rate_aware(config, seeds, learning_rates, checkpoint_root, results_path
                 if results_path is not None:
                     atomic_write_rate_aware_jsonl(results_path, existing)
             except BaseException as error:
+                # Retry is opt-in: only an explicit infrastructure interruption
+                # is known safe. Unclassified exceptions preserve a terminal
+                # scientific-failure marker rather than silently permitting reruns.
                 _attempt_event(config, root, seed, rate, kind, "failed", error=f"{type(error).__name__}: {error}",
-                               scientific_failure=isinstance(error, (ValueError, FloatingPointError)))
+                               scientific_failure=not isinstance(error, InterruptedError))
                 raise
             _attempt_event(config, root, seed, rate, kind, "completed")
     return [row for row in existing if row["seed"] in seeds and row["learning_rate"] in rates]
