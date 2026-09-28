@@ -46,3 +46,21 @@ The article establishes correlational linear recoverability. This artifact asks 
 ## Important non-equivalences
 
 The earlier two-state sources do not reproduce Mess3. The new Mess3 factorization does reproduce the emission process, but its 64-emission sequences omit BOS and provide 63 input/target positions; the published sequence protocol differs. The CPU run also changes width, depth, attention-head dimension, position encoding, normalization, MLP width/gating, initialization, probe site, optimizer settings, and optimization budget, as detailed in the report's fidelity table. PCA of raw activations remains distinct from regression into weighted coordinates. The causal intervention results belong to the earlier two-state setting and cannot be transferred to Mess3 from this correlational readout experiment.
+## 2026 causal-extension boundary
+
+The predictive-memory pilot is deliberately narrower than several concurrent
+results. Ray, Riechers, and Shai already derive the nonergodic weighted-belief
+geometry. [Transformers learn factored representations](https://arxiv.org/abs/2602.02385)
+studies efficient subspace factorization in synthetic processes.
+[Large Language Models Develop Belief State Geometry In-Context](https://arxiv.org/abs/2609.17376)
+reports linear belief recovery and activation steering in pretrained language
+models prompted with HMM data. [Markovian Circuit Tracing](https://arxiv.org/abs/2605.20824)
+compares activation state forcing with exact HMM counterfactuals.
+
+The proposed incremental contribution was therefore not “the first belief
+intervention.” It was a retained-prefix source-odds edit whose conditional
+second-token response after a newly observed token could be compared with exact
+Bayesian dynamics. The registered actuator failed before that behavioral test.
+Accordingly, the repository contributes a negative instrument-validity result:
+high whole-prefix decodability did not make this linear inverse stable under an
+independent decoder.

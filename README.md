@@ -10,7 +10,7 @@ Real sequence data is heterogeneous: a document has an author, language, genre, 
 
 This repository turns that claim into a controlled experiment. The sources are small hidden Markov models (HMMs), so the exact Bayesian posterior and exact next-token distribution are computable at every position. A GRU and a decoder-only Transformer see only tokens. Held-out probes test whether their activations recover the exact beliefs; causal projections test whether removing those representations selectively damages behavior.
 
-The result is deliberately mixed. The simpler HMM experiment recovers component information, but conditional-state and causal-erasure effects are architecture- and seed-sensitive. The first direct Mess3 reproduction fails its registered trained-over-untrained prediction. A later diagnosis shows that fresh data improves prediction at 768 updates without recovering component geometry; substantial geometry appears only after 3,072 fresh-data updates. A five-seed, two-learning-rate follow-up then falsifies the preregistered claim that predictive competence globally aligns geometry better than optimizer step. A separately registered post-initialization study supports competence over raw log-step. A further eight-seed external test falsifies the proposed advantage of a frozen rate-aware clock over competence: the clock/competence MSE ratio is 1.180, with only four clock wins. These bounded comparisons expose training and generalization effects without establishing a causal mechanism or reproducing the published number exactly.
+The result is deliberately mixed. The simpler HMM experiment recovers component information, but conditional-state and causal-erasure effects are architecture- and seed-sensitive. The first direct Mess3 reproduction fails its registered trained-over-untrained prediction. A later diagnosis shows that fresh data improves prediction at 768 updates without recovering component geometry; substantial geometry appears only after 3,072 fresh-data updates. A five-seed, two-learning-rate follow-up then falsifies the preregistered claim that predictive competence globally aligns geometry better than optimizer step. A separately registered post-initialization study supports competence over raw log-step. A further eight-seed external test falsifies the proposed advantage of a frozen rate-aware clock over competence: the clock/competence MSE ratio is 1.180, with only four clock wins. Finally, a preregistered source-belief steering pilot stops at its actuator gate: source belief is highly decodable from the full block-1 prefix, but the inverse edit does not transfer accurately enough to an independent decoder. These bounded comparisons expose training, generalization, and intervention-validity effects without establishing a causal mechanism or reproducing the published number exactly.
 
 ## Why this problem matters
 
@@ -128,6 +128,7 @@ Linear probes are used as diagnostics in the sense of [Alain and Bengio (2016)](
 | Five-seed geometry-threshold test | Registered competence-only LOSO MSE is `0.01317` versus step-only `0.00554`; ratio `2.378`, failing the predicted `<0.80`. | Across initialization and training, optimizer step predicts component geometry better. A post-hoc exclusion of initialization reverses the comparison (`0.477`), so the conclusion is regime-sensitive. |
 | Preregistered competence–time dissociation | Post-initialization competence/log-step LOSO MSE ratio `0.457232`; competence wins `8/8` seeds; all validity checks pass. | Supports the registered comparison against rate-unaware step; the earlier global failure remains unchanged. |
 | Frozen rate-aware-clock external validation | Clock/competence MSE ratio `1.179546`; clock wins `4/8` new seeds; all validity checks pass. **Falsified.** | The exploratory old-data clock advantage did not transport under the registered rule. This does not establish equivalence or universal competence superiority. |
+| Persistent source-belief intervention | Whole-prefix component R² is `0.893/0.908` and five-coordinate joint-belief R² is `0.781/0.788`, but worst-dose independent displacement error is `0.613/0.659`, above the locked `0.50` ceiling. **Actuator infeasible.** | Decodability did not imply a decoder-stable causal coordinate. The protocol stopped before held-out behavioral outcomes, so causal source memory remains untested. |
 | Causal erasure | Learned directions show average selectivity, but effects vary by seed and architecture and sometimes occur in untrained networks. | No evidence for a universally stable, selectively necessary final-layer factorization. |
 
 The full numerical record—including negative results and limitations—is in the [technical report](report.md).
@@ -142,6 +143,18 @@ The full numerical record—including negative results and limitations—is in t
 - **LOSO MSE** is leave-one-seed-out prediction error. In the threshold test, both learning-rate trajectories for the held-out seed are excluded from fitting.
 
 ## Key figures
+
+### Can a decoded source belief become a valid persistent intervention?
+
+![Predictive-memory actuator feasibility](figures/predictive_memory.png)
+
+The blue bars are component-posterior R² and the orange bars are
+five-coordinate joint-belief R². Both are high, but the right panel shows the
+worst-dose relative squared displacement error under an independent decoder:
+`0.613` and `0.659`, versus the registered `≤0.50` gate. Every other gate passes.
+The command therefore stops before model seeds 20--24 or any behavioral response
+is opened. This is a useful negative result about intervention validity—not a
+negative causal-memory result. See the [complete result and immutable hashes](experiments/predictive_memory/RESULTS.md).
 
 ### Does a frozen rate-aware clock transport to new seeds?
 
@@ -206,9 +219,10 @@ Removing learned component or state subspaces can selectively reduce the corresp
 | Recreate the fresh-versus-reused diagnosis | `make diagnose-mess3` | recorded uncached wall time 3:02:13; exploratory two-seed grid |
 | Recreate the five-seed threshold test | `make threshold-mess3` | recorded uncached wall time 30:57 after one pilot; 70 training and 420 probe cells |
 | Execute the locked rate-aware-clock grid | `make rate-aware-clock` | recorded wall time 57:59.48; 128 training, 768 probe, 8 audit, 1 summary; requires matching local checkpoints or separate empty output paths |
+| Execute the immutable predictive-memory pilot | `make predictive-memory` | recorded wall time 16.17 seconds; validly stops at the two-seed development actuator gate and refuses overwrite on rerun |
 | Regenerate rate-aware figures without checkpoints | [Raw-JSONL recipe](experiments/rate_aware_clock/RESULTS.md#figures-and-reproducibility) | no training or probing; both PNGs reproduce byte-for-byte |
 | Rebuild plots without training | `make figures` | reads checked-in JSONL only |
-| Run automated verification | `PYTHONPATH=src pytest -q` | 470 tests passed in the recorded final verification |
+| Run automated verification | `PYTHONPATH=src pytest -q` | 511 tests passed in the recorded final verification |
 
 Start with `make smoke`. The Mess3 commands are still CPU-sized, but they are research runs rather than installation checks. No GPU result is claimed.
 
@@ -226,6 +240,7 @@ make reproduce   # held-out probes and PCA records (trains if needed)
 make reproduce-mess3 # exact Mess3 process, three CPU Transformer seeds, weighted-belief metrics/figures
 make diagnose-mess3 # exploratory fresh-vs-reused Mess3 training, checkpoints, probes, figures
 make threshold-mess3 # registered five-seed, two-rate competence-vs-step learning curves
+make predictive-memory # immutable source-belief actuator pilot; existing evidence makes reruns fail closed
 make extension   # controlled causal erasure (trains if needed)
 make figures     # reads only results/*.jsonl
 make sweep-overlap # four overlap values × two models × three seeds
@@ -276,6 +291,7 @@ and [results](experiments/rate_aware_clock/RESULTS.md).
 - `results/mess3_threshold_*.jsonl` and `figures/mess3_threshold_*.png`: paired five-seed learning curves, normal/shuffled probes, registered LOSO model comparison, and the labeled post-initialization sensitivity analysis.
 - `experiments/competence_time/RESULTS.md`, `results/mess3_competence_time_*.jsonl`, and `figures/mess3_competence_time_*.png`: the supported preregistered post-initialization competence-versus-log-step comparison.
 - `experiments/rate_aware_clock/RESULTS.md`, `results/mess3_rate_aware_clock_*.jsonl`, and `figures/mess3_rate_aware_clock_*.png`: the falsified external frozen-clock prediction, complete new-seed errors, actual-token audit, and unchanged registered decision.
+- `experiments/predictive_memory/RESULTS.md`, `results/predictive_memory*.jsonl`, and `figures/predictive_memory.png`: the stopped source-belief actuator pilot, exact gate evidence, command ownership records, and immutable scientific verdict.
 - `results/sweep_overlap_*.jsonl` and `figures/sweep_overlap.png`: the registered source-overlap extension.
 - `results/sweep_length_*.jsonl` and `figures/sweep_length.png`: the registered sequence-length follow-up.
 - `results/sweep_components_*.jsonl` and `figures/sweep_components.png`: the registered component-count sweep.
@@ -311,6 +327,11 @@ The repository is intended to be inspectable at three levels:
 When reusing the code, report the configuration file, seed set, commit hash, hardware/device, and whether checkpoints were trained from scratch or reused. Please do not describe the initial two-state experiment as an exact Mess3 reproduction, or the post-hoc step-zero exclusion as a preregistered result.
 
 ## Background references
+
+- [Ray, Riechers, and Shai (2026), *The Geometry of Nonergodic Composition*](https://belief-updates.pub/nonergodic-geometry/): the target weighted-belief geometry for mixtures of persistent sources.
+- [Shai et al. (2026), *Transformers learn factored representations*](https://arxiv.org/abs/2602.02385): geometric predictions for factored synthetic processes.
+- [Balcells et al. (2026), *Large Language Models Develop Belief State Geometry In-Context*](https://arxiv.org/abs/2609.17376): belief decoding and steering in pretrained LLMs prompted with HMM sequences.
+- [*Markovian Circuit Tracing for Transformer State Dynamic* (2026)](https://arxiv.org/abs/2605.20824): state forcing against exact HMM counterfactuals.
 
 - Leonard E. Baum and Ted Petrie, [“Statistical Inference for Probabilistic Functions of Finite State Markov Chains”](https://doi.org/10.1214/aoms/1177699147), *Annals of Mathematical Statistics* 37(6), 1966.
 - Lawrence R. Rabiner, [“A Tutorial on Hidden Markov Models and Selected Applications in Speech Recognition”](https://doi.org/10.1109/5.18626), *Proceedings of the IEEE* 77(2), 1989.

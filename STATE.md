@@ -1,12 +1,13 @@
 # Experimental state
 
-Current status: the completed [rate-aware clock external validation](experiments/rate_aware_clock/RESULTS.md)
-is **falsified**: the clock/competence MSE ratio is 1.1795463140097937,
-with 4/8 clock wins and every registered validity check passing. The earlier
-post-initialization competence–time comparison remains supported; the global
-threshold prediction remains falsified. The result and final parser/documentation
-polish were merged by [PR #2](https://github.com/stannum13/nonergodic-memory/pull/2)
-as `0c8c361`; local and remote `main` matched and no other pull request was open.
+Current status: the [predictive-memory causal pilot](experiments/predictive_memory/RESULTS.md)
+is **actuator infeasible** at its registered development gate. Whole-prefix
+component and five-coordinate joint belief are strongly decodable, but the
+worst-dose independent displacement errors are 0.613391/0.658563, above the
+locked 0.50 maximum in both seeds. No causal response or held-out model was
+evaluated. The earlier rate-aware clock validation remains falsified, the
+post-initialization competence–time comparison remains supported, and the global
+threshold prediction remains falsified.
 The opening hypothesis-through-next-
 experiment material below is historical, retained from that earlier threshold
 loop; later sections record the subsequent experiments and locks.
@@ -320,3 +321,32 @@ The outer command reservation, scientific attempt record, raw result, scientific
 summary, command status, and figure were all absent. The only permitted next
 action is the single fixed `make predictive-memory` execution; no implementation
 or criterion may change in response to its measurements.
+
+## Predictive-memory causal pilot: frozen result
+
+The single registered `/usr/bin/time -p make predictive-memory` command completed
+normally in 16.17 seconds wall time. It produced two split audits and two trained
+development calibration rows, then stopped before behavioral evaluation because
+both development models failed the independent-decoder displacement criterion:
+0.6133913055662932 and 0.658562931053291, versus the required maximum 0.50.
+Component-posterior R² was 0.892812/0.908015 and five-coordinate joint-belief R²
+was 0.780860/0.788348. Rank, construction residual, intervention scale, oracle
+signal, identity, exact-enumeration, finiteness, and split-isolation gates all
+passed. There are zero response rows and zero held-out-model rows.
+
+Independent post-result theory, causal, and methods audits reproduce the status
+and approve the interpretation. The result establishes that this specified
+whole-prefix inverse-decoder actuator is not valid under the frozen cross-decoder
+criterion. It provides neither positive nor negative evidence about the unmeasured
+causal predictive response. Complete evidence, hashes, and limitations are in
+`experiments/predictive_memory/RESULTS.md`.
+
+Post-result release verification passed **511 tests in 261.91 seconds** on CPU;
+the retained-evidence regression independently reconstructs the frozen
+`actuator_infeasible` verdict from the checked-in JSONL.
+
+**Next smallest experiment.** Do not relax the failed 0.50 gate or search another
+site on seeds 10/11 or 20--24. A genuinely new study should preregister a
+manifold-constrained or multi-decoder-consensus actuator, develop it without
+opening the reserved confirmation seeds 50--57, and require the same independent
+fidelity gate before any behavioral claim.

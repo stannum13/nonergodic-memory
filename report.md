@@ -20,6 +20,15 @@ four seeds. All registered validity checks pass. The earlier verdicts remain
 unchanged, and none of these forecast comparisons establishes causal use of
 decoded geometry.
 
+A final preregistered pilot asks whether decoded persistent source belief can be
+turned into a valid retained-prefix intervention. Component and joint belief are
+strongly linearly recoverable from the full block-1 prefix, but the requested
+belief displacement transfers to an independent decoder with worst-dose errors
+of 0.613 and 0.659, above the locked 0.50 ceiling. The run therefore stops at
+actuator validation before any held-out behavioral response. This is evidence
+against this particular inverse-decoder instrument, not evidence against causal
+source memory.
+
 ## Relation to the target result
 
 Ray, Riechers, and Shai derive a telescoping belief geometry for nonergodic compositions and report that a linear map from Transformer residual activations recovers weighted beliefs for two Mess3 sources with held-out R² near 0.985, versus about 0.45 for an untrained network. The earlier experiments below are a conceptual reproduction using conventional two-state HMMs and smaller models. The new direct Mess3 experiment matches the source process through an exact transition/emission factorization, while retaining a smaller network and different training protocol. Detailed correspondences and non-equivalences are recorded in `paper_notes.md` and the fidelity table below.
@@ -401,6 +410,47 @@ The registered `KL_standard_short − KL_budget_short > 0` prediction is support
 
 The direction therefore generalizes from Transformer to GRU, although the GRU magnitude is smaller. It supports a broad training-exposure explanation for the fixed-count short-model deficit. It still does not identify whether supervised-token count, batch size, or greater training-sequence diversity causes the improvement, because those variables move together in the exact token/step matching design. It also does not change the causal-erasure conclusion: state R² does not benefit and selective subspace damage remains seed-sensitive.
 
+## Persistent source-belief intervention pilot
+
+The next extension asked a narrower causal question than generic erasure: can a
+source-posterior edit be installed in the transformer's retained block-1 prefix
+memory and persist through one newly observed token with the exact Bayesian
+conditional response? The exact counterfactual changes component log odds by
+`±log(2)` while preserving both normalized within-component state beliefs. The
+intervention acts on the complete `32 × 32` block-1 prefix tensor and resumes the
+second transformer block after reinstating the identical edited history in every
+appended-token branch.
+
+The protocol was locked before execution and required an independent actuator
+fidelity gate before any causal outcome. A standardized ridge decoder was fit on
+2,048 fresh prefixes, a second decoder on 1,024 disjoint prefixes, and gates were
+measured on another 128. Development used only the existing fresh-data seed-10
+and seed-11 step-3,072 checkpoints. Held-out model seeds 20--24, evaluation
+prefixes, shuffled/random actuators, and step-zero controls could be opened only
+after both development models passed.
+
+The registered command stopped at that gate. Whole-prefix component-posterior R²
+was 0.892812 and 0.908015, while five-coordinate joint-belief R² was 0.780860 and
+0.788348. Both constructing decoders retained all five directions and installed
+their requested changes to numerical precision. Nevertheless, the worst-dose
+relative squared displacement errors under independently fitted decoders were
+0.613391 and 0.658563, exceeding the preregistered maximum of 0.50. Every other
+gate passed, including exact latent-path enumeration, analytic signal, perturbation
+scale, dose-zero identity, finiteness, and split isolation.
+
+The correct verdict is **actuator infeasible**, not a failed causal-memory
+hypothesis. The result shows that strong out-of-fit decoding did not yield a
+decoder-stable inverse coordinate under this intervention construction. There
+are no behavioral-response rows, held-out-model rows, or untrained-control rows,
+so the proposed persistent Bayesian response was never measured. The complete
+protocol, gate table, hashes, and immutable execution record are in
+[the experiment result](experiments/predictive_memory/RESULTS.md).
+
+The post-result release suite passes 511 tests in 261.91 seconds on CPU. A
+retained-evidence regression reconstructs the stopped status from the checked-in
+raw and summary JSONL, so the result remains testable without rerunning the
+immutable command.
+
 ## Negative results and limitations
 
 - Untrained networks are surprisingly decodable: recent-token features alone expose much of component and state information. Classification accuracy without the untrained and shuffled controls would overstate the result.
@@ -418,6 +468,7 @@ The direction therefore generalizes from Transformer to GRU, although the GRU ma
 - The registered five-seed threshold hypothesis fails: a global quadratic in competence generalizes worse than a quadratic in log-step. A post-hoc exclusion of initialization reverses the result, exposing regime sensitivity but requiring new confirmation rather than reinterpretation.
 - The separately registered post-initialization competence–time comparison supports competence against raw log-step, but a stronger exploratory rate-aware-clock advantage fails on new seeds: ratio 1.179546 and only four clock wins despite valid controls. This failure does not establish equivalence or universal competence superiority and does not weaken either earlier registered verdict.
 - The frozen forecast comparison tests new random realizations within two selected rates and a small architecture, not transport across generators, architectures, or unseen rates. Competence uses contemporaneous behavioral data and geometry pools a different position range; causal optimization mechanisms and causal use of decoded geometry remain untested.
+- The persistent-memory pilot adds a stricter warning: high whole-prefix component and joint-belief R² did not make the decoder inverse stable across an independently fitted readout. Because the pilot stopped at feasibility, it cannot support either presence or absence of causal source-belief control. The high R² also cannot be attributed to training because the step-zero controls were not reached.
 - The central result still covers only overlap 0.35, two components, length 32, and width 32. The exploratory one-axis sweeps and one matched 2×2 overlap-by-context grid leave most cross-axis interactions untested.
 - Erasure is based on a single linear probe fit. Iterative nullspace projection or nonlinear adversaries could find residual information not measured here.
 
