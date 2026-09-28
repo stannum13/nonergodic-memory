@@ -573,6 +573,78 @@ def _analyze(fixture):
     return _api("analyze_rate_aware_clock")(*fixture)
 
 
+def _figure_api():
+    module_name = "nonergodic_memory.mess3_rate_aware_clock_figures"
+    assert importlib.util.find_spec(module_name) is not None, "rate-aware figures are missing"
+    return importlib.import_module(module_name)
+
+
+def test_rate_aware_figures_filenames_pixels_and_registered_content(tmp_path, monkeypatch):
+    figures = _figure_api()
+    fixture = _synthetic_analysis_grid()
+    summary = _analyze(fixture)
+    saved = []
+    original = figures._save
+    def capture(fig, path):
+        saved.append(fig)
+        return original(fig, path)
+    monkeypatch.setattr(figures, "_save", capture)
+    paths = figures.generate_rate_aware_clock_figures(*fixture, summary, tmp_path)
+    assert [path.name for path in paths] == ["mess3_rate_aware_clock_learning.png",
+                                           "mess3_rate_aware_clock_forecasts.png"]
+    import matplotlib.image as mpimg
+    for path in paths:
+        pixels = mpimg.imread(path)
+        assert pixels.shape[0] > 300 and pixels.shape[1] > 500
+        assert np.mean(np.any(pixels[:, :, :3] < .95, axis=-1)) > .03
+    for axis in saved[0].axes:
+        assert len(axis.collections) == 8  # separate untrained diamonds
+        curves = [line for line in axis.lines if len(line.get_xdata()) == 7]
+        assert len(curves) == 8
+        assert all(min(line.get_xdata()) > 0 for line in curves)
+    prediction, errors = saved[1].axes
+    assert all(len(collection.get_offsets()) == 112 for collection in prediction.collections)
+    assert len(errors.patches) == 16
+    per_seed = summary["primary"]["per_seed"]
+    assert [bar.get_height() for bar in errors.patches[:8]] == [row["competence_mse"] for row in per_seed]
+    assert [bar.get_height() for bar in errors.patches[8:]] == [row["clock_mse"] for row in per_seed]
+    assert "0.000" in saved[1]._suptitle.get_text()
+    assert "SUPPORTED" in saved[1]._suptitle.get_text()
+
+
+@pytest.mark.parametrize("change", ["verdict", "errors", "audit", "incomplete"])
+def test_rate_aware_figures_validate_before_plotting(tmp_path, monkeypatch, change):
+    figures = _figure_api()
+    fixture = _synthetic_analysis_grid()
+    summary = _analyze(fixture)
+    if change == "verdict":
+        summary["verdict"] = "falsified"
+    elif change == "errors":
+        summary["primary"]["per_seed"][0]["clock_mse"] = .1
+    elif change == "audit":
+        fixture[3][0]["intersections"]["evaluation__probe_fit"] = 1
+    else:
+        fixture[2].pop()
+    def unexpected(*args, **kwargs):
+        pytest.fail("plot created before full validation")
+    monkeypatch.setattr(figures.plt, "subplots", unexpected)
+    with pytest.raises(ValueError):
+        figures.generate_rate_aware_clock_figures(*fixture, summary, tmp_path / "figures")
+    assert not (tmp_path / "figures").exists()
+
+
+def test_rate_aware_figures_reject_malformed_audit_even_with_fresh_inconclusive_summary(tmp_path, monkeypatch):
+    figures = _figure_api()
+    fixture = _synthetic_analysis_grid()
+    fixture[3][0]["datasets"]["evaluation"]["sha256"] = "not-a-sha256"
+    summary = _analyze(fixture)
+    assert summary["verdict"] == "inconclusive"
+    monkeypatch.setattr(figures.plt, "subplots", lambda *a, **k: pytest.fail("invalid audit reached plotting"))
+    with pytest.raises(ValueError):
+        figures.generate_rate_aware_clock_figures(*fixture, summary, tmp_path / "figures")
+    assert not (tmp_path / "figures").exists()
+
+
 def test_analysis_supported_seed_equal_frozen_forecasts():
     fixture = _synthetic_analysis_grid()
     original = copy.deepcopy(fixture)

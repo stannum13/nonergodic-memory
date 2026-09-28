@@ -22,6 +22,119 @@ from mess3_threshold import _training_records_complete
 ROOT = Path(__file__).parents[1]
 
 
+def _rate_aware_cli_args(tmp_path):
+    config = load_config(ROOT / "configs/mess3_rate_aware_clock.yaml")
+    config["data"].update(sequence_length=24, train_sequences=16, test_sequences=12)
+    config["model"].update(width=8, heads=2, max_length=32)
+    config["train"].update(batch_size=8, checkpoint_steps=[0, 1])
+    config["diagnosis"]["window"] = 4
+    config["probe"].update(train_sequences=24, test_sequences=16)
+    config["rate_aware_clock"].update(seeds=[6, 7], primary_checkpoints=[1])
+    source = tmp_path / "tiny.yaml"
+    source.write_text(yaml.safe_dump(config))
+    return ["--config", str(source), "--checkpoint-dir", str(tmp_path / "checkpoints"),
+            "--training-results", str(tmp_path / "training.jsonl"),
+            "--probe-results", str(tmp_path / "probes.jsonl"),
+            "--audit-results", str(tmp_path / "audit.jsonl"),
+            "--summary-results", str(tmp_path / "summary.jsonl"),
+            "--output-dir", str(tmp_path / "figures")]
+
+
+def test_rate_aware_cli_all_twice_preserves_invalid_complete_grid(tmp_path, monkeypatch):
+    import importlib
+    args = _rate_aware_cli_args(tmp_path)
+    command = [sys.executable, str(ROOT / "src/mess3_rate_aware_clock.py"), *args, "--mode", "all"]
+    environment = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
+    first = subprocess.run(command, env=environment, capture_output=True, text=True)
+    assert first.returncode == 0, first.stderr
+    for filename, count in (("training.jsonl", 8), ("probes.jsonl", 48),
+                            ("audit.jsonl", 2), ("summary.jsonl", 1)):
+        assert len((tmp_path / filename).read_text().splitlines()) == count
+    retained = {path: (path.read_bytes(), path.stat().st_mtime_ns)
+                for path in tmp_path.rglob("*") if path.is_file() and path.suffix != ".png"}
+    second = subprocess.run(command, env=environment, capture_output=True, text=True)
+    assert second.returncode == 0, second.stderr
+    assert all(path.read_bytes() == content for path, (content, _) in retained.items())
+    assert all(path.stat().st_mtime_ns == mtime for path, (_, mtime) in retained.items()
+               if path.suffix == ".pt")
+    summary = json.loads((tmp_path / "summary.jsonl").read_text())
+    assert summary["verdict"] == "inconclusive"
+    cli = importlib.import_module("mess3_rate_aware_clock")
+    def unexpected(*args, **kwargs):
+        pytest.fail("complete scientifically invalid evidence must never invoke a producer")
+    for name in ("run_rate_aware_training", "run_rate_aware_probes", "audit_token_isolation"):
+        monkeypatch.setattr(cli, name, unexpected)
+    monkeypatch.setattr(sys, "argv", ["rate-aware", *args, "--mode", "all"])
+    cli.main()
+    assert json.loads((tmp_path / "summary.jsonl").read_text())["verdict"] == "inconclusive"
+
+
+@pytest.mark.parametrize("case", ["duplicate_seed", "unknown_rate", "alias", "nested_alias", "checkpoint_alias", "summary", "audit"])
+def test_rate_aware_cli_preflights_before_side_effects(tmp_path, monkeypatch, case):
+    import importlib
+    assert (ROOT / "src/mess3_rate_aware_clock.py").exists(), "rate-aware command is missing"
+    cli = importlib.import_module("mess3_rate_aware_clock")
+    args = _rate_aware_cli_args(tmp_path)
+    if case == "duplicate_seed":
+        args += ["--seeds", "6", "6"]
+    elif case == "unknown_rate":
+        args += ["--learning-rates", "0.5"]
+    elif case == "alias":
+        args += ["--audit-results", str(tmp_path / "training.jsonl")]
+    elif case == "nested_alias":
+        args += ["--output-dir", str(tmp_path / "training.jsonl")]
+    elif case == "checkpoint_alias":
+        args += ["--training-results", str(tmp_path / "checkpoints/lr_0p003/transformer_seed6_fresh_step0.pt")]
+    else:
+        (tmp_path / f"{case}.jsonl").write_text('{"record_type": "foreign"}\n')
+    def unexpected(*args, **kwargs):
+        pytest.fail("preflight must finish before production")
+    for name in ("run_rate_aware_training", "run_rate_aware_probes", "audit_token_isolation"):
+        monkeypatch.setattr(cli, name, unexpected)
+    monkeypatch.setattr(sys, "argv", ["rate-aware", *args, "--mode", "all"])
+    with pytest.raises(SystemExit):
+        cli.main()
+    assert not (tmp_path / "checkpoints").exists()
+    assert not (tmp_path / "figures").exists()
+
+
+def test_rate_aware_shell_and_make_are_isolated(tmp_path):
+    script = ROOT / "scripts/mess3_rate_aware_clock.sh"
+    assert script.exists(), "isolated rate-aware runner is missing"
+    result = subprocess.run(["bash", str(script), "--help"], cwd=tmp_path,
+                            env={**os.environ, "PYTHON": sys.executable}, capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+    assert "{train,probe,audit,analyze,figures,all}" in result.stdout
+    target = subprocess.run(["make", "-n", "rate-aware-clock"], cwd=ROOT, capture_output=True, text=True)
+    assert target.returncode == 0, target.stderr
+    assert target.stdout.strip() == "bash scripts/mess3_rate_aware_clock.sh"
+
+
+def test_rate_aware_cli_checks_attempt_log_even_for_complete_grid(tmp_path, monkeypatch):
+    import mess3_rate_aware_clock as cli
+    args = _rate_aware_cli_args(tmp_path)
+    log = tmp_path / "checkpoints/rate_aware_clock_attempts.jsonl"
+    log.parent.mkdir()
+    log.write_text('{"record_type": "foreign"}\n')
+    monkeypatch.setattr(sys, "argv", ["rate-aware", *args, "--mode", "audit"])
+    with pytest.raises(SystemExit, match="attempt"):
+        cli.main()
+    assert not (tmp_path / "audit.jsonl").exists()
+
+
+def test_rate_aware_cli_audit_is_atomic_full_seed_snapshot(tmp_path, monkeypatch):
+    import mess3_rate_aware_clock as cli
+    args = _rate_aware_cli_args(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["rate-aware", *args, "--mode", "audit", "--seeds", "6"])
+    cli.main()
+    rows = [json.loads(line) for line in (tmp_path / "audit.jsonl").read_text().splitlines()]
+    assert [row["seed"] for row in rows] == [6, 7]
+    previous = (tmp_path / "audit.jsonl").read_bytes()
+    monkeypatch.setattr(cli, "audit_token_isolation", lambda *a, **k: pytest.fail("audit snapshot was regenerated"))
+    cli.main()
+    assert (tmp_path / "audit.jsonl").read_bytes() == previous
+
+
 def test_keyed_diagnosis_write_preserves_unselected_cells(tmp_path: Path) -> None:
     path = tmp_path / "records.jsonl"
     existing = [
