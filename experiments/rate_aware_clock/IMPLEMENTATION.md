@@ -18,18 +18,29 @@ raw grids, performs seed-equal scoring and validity checks, and emits one of
 
 ## Public implementation-lock boundary
 
-Tasks 1–4 are implemented and their task-level independent reviews are resolved
-through code commit `0521b0c719211006eb9b84c8342281c0d9803ac1` (`0521b0c`).
+Tasks 1–4 and the Task 5 independent audit are complete through approved code
+commit `933f50fc22e72ce4f264b811fc09e039bfe10cad` (`933f50fc`).
 The checked RED/GREEN steps below reflect the recorded task reports and commit
 history. Fresh whole-suite and smoke verification, immutable-source checks,
 and worktree/history zero-artifact evidence are recorded in `STATE.md`.
 
-The documentation commit titled `docs: lock rate-aware experiment` records this
-exact code boundary; it introduces no scientific or implementation changes.
-Task 5's independent whole-implementation audit and publication of the lock
-remain pending until their evidence is recorded. No confirmation execution is
-permitted before those steps are complete. Task 6 remains unstarted, with no
-seed 40–47 confirmation data or verdict.
+The documentation commit titled `docs: approve rate-aware implementation lock`
+records this final boundary, superseding the initial documentation lock
+`5f02d75`. Independent methods, integrity, and code reviewers all APPROVE
+after repairs `ec368508` and `933f50fc`, with no remaining Critical or Important
+findings. Repairs preserve parameter/audit identity, output safety, strict JSON,
+terminal execution evidence, and outcome-independent registered completion;
+they do not change scientific rules. Final verification is 470 full-suite tests
+and 60 covering regressions passing; smoke passed at `ec368508`, with its
+numerical and generic paths unchanged by the follow-up. Fresh artifact/history,
+config, source-hash, and protected-file checks through `933f50fc` passed.
+
+Task 5's publication step remains pending until the approved lock is pushed and
+that boundary is recorded. No confirmation execution is permitted before that
+step completes. Task 6 remains unstarted, with no seed 40–47 confirmation data
+or verdict. The single-writer, explicit orphan-checkpoint recovery, known-path
+alias validation, and per-image publication limitations are recorded in
+`STATE.md`.
 
 ## Global constraints
 
@@ -185,10 +196,12 @@ seed 40–47 confirmation data or verdict.
 - [x] Scan the working tree and git history for seed 40–47 rate-aware
   checkpoints, JSONL rows, or figures; require zero before lock.
 - [x] Record the implementation lock commit and config digest in `STATE.md`.
-- [ ] Have an independent reviewer audit protocol/code/test agreement and fix
+- [x] Have an independent reviewer audit protocol/code/test agreement and fix
   every Critical or Important finding without changing the scientific rules.
 - [x] Commit checklist evidence with
   `git commit -m "docs: lock rate-aware experiment"`.
+- [x] Refresh the approved code lock and council evidence with
+  `git commit -m "docs: approve rate-aware implementation lock"`.
 - [ ] Push the locked branch after the independent audit is resolved and record
   the published lock boundary.
 

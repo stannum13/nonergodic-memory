@@ -120,22 +120,41 @@ record, or figure exists for the rate-aware-clock experiment, and no seed
 
 ## Rate-aware clock external validation: implementation lock
 
-The exact verified code-lock commit is
-`0521b0c719211006eb9b84c8342281c0d9803ac1` (`0521b0c`), before any confirmation
-execution. The documentation commit titled `docs: lock rate-aware experiment`
-records this public code boundary. Task-level implementation reviews are
-resolved; the independent whole-implementation audit and push of the locked
-branch remain pending and must be recorded before seeds 40–47 are executed.
-This is a code lock, not a confirmation result or verdict.
+The final approved code-lock commit is
+`933f50fc22e72ce4f264b811fc09e039bfe10cad` (`933f50fc`), before any confirmation
+execution. The documentation commit titled
+`docs: approve rate-aware implementation lock` records this boundary,
+superseding the initial lock recorded in `5f02d75`. Independent methods,
+integrity, and code reviewers all **APPROVE**, with no remaining Critical or
+Important findings. Publication of the approved locked branch remains pending
+and must be recorded before seeds 40–47 are executed. No confirmation result
+or verdict exists.
 
-Fresh verification at the code lock:
+Council findings were repaired in `ec368508` and `933f50fc`, then independently
+re-reviewed. The repairs bind probe rows to checkpoint parameters, verify cached
+audits against deterministic token reconstruction, reject output aliases of
+protected evidence, publish figures atomically, preserve scientific failure
+evidence through analysis, and serialize derived ratios safely. Follow-up
+regressions enforce outcome-independent completion of every untouched
+registered trajectory, completion of a missing fixed audit for intact finite
+grids, and propagation of terminal execution failure into the verdict and
+figure reanalysis. The scientific rules, forecast constants, and grid remain
+unchanged.
 
-- `PYTHONPATH=src pytest -q`: **357 passed in 124.27s (0:02:04)**, exit 0.
-- `make smoke`: exit 0; training, probing, interventions, and four legacy
-  figures completed. Only `results/smoke_training.jsonl` (2 rows) and
-  `results/smoke_reproduction.jsonl` (1,008 rows) changed among tracked files;
-  their unrelated generated rewrites were inspected and restored. The tree
-  was clean before the lock-documentation edits.
+Final repair verification and fresh lock checks:
+
+- `PYTHONPATH=src pytest -q`: **470 passed in 263.67s (0:04:23)**, exit 0,
+  on the final repaired implementation. The covering resumption, failure
+  evidence, audit-completion, overlap, and cache regressions passed **60 tests**
+  (224 deselected) in **122.81s (0:02:02)**, exit 0.
+- `make smoke`: exit 0 at `ec368508`; training, probing, interventions, and
+  four legacy figures completed. Unrelated generated rewrites of
+  `results/smoke_training.jsonl` and `results/smoke_reproduction.jsonl` were
+  inspected and restored. The `933f50fc` follow-up changed only rate-aware
+  orchestration, validation, analysis/figure evidence handling, and associated
+  tests; numerical producers and generic smoke paths were unchanged, so smoke
+  was not repeated. The tree was clean before the final lock-documentation
+  edits.
 - `config_digest(load_config("configs/mess3_rate_aware_clock.yaml"))`:
   **`59f938bbff48f300`**, unchanged from the configuration lock.
 - `verify_forecast_provenance(config, Path("."))`: exit 0; all **256** eligible
@@ -147,26 +166,33 @@ Fresh verification at the code lock:
   `9a7aa242f267bddc2064c8ddf93c3163891167630d7dd3f0ea4e603993e3abd3`.
 
 The pre-execution scan enumerated the worktree including ignored files and
-every tree in the eight-commit history from preregistration `37d5201` through
-`0521b0c`, inclusive. The worktree contained 580 checkpoint/JSONL/image
+every tree in the 11-commit history from preregistration `37d5201` through
+`933f50fc`, inclusive. The worktree contained 580 checkpoint/JSONL/image
 artifacts, including 513 checkpoints with identifiable nonconfirmation seeds
-and 44 JSONLs containing 74,576 rows. Historical trees contained 536 artifact
+and 44 JSONLs containing 74,576 rows. Historical trees contained 737 artifact
 entries and 44 distinct JSONL blobs (74,576 rows). Artifact paths were checked
 for the rate-aware experiment or seeds 40–47; every JSONL row was parsed and
 checked recursively for confirmation-seed identity and rate-aware identity.
 There were **zero matching checkpoint, JSONL, or figure artifacts** in either
 scope. Synthetic in-memory test fixtures are not generated confirmation data.
 
-`git ls-files .superpowers` and `git log 0521b0c -- .superpowers` both returned
+`git ls-files .superpowers` and `git log 933f50fc -- .superpowers` both returned
 no entries: neither the tracked tree nor this branch's reachable history
 contains private `.superpowers` content. A broader `git log --all` check found
 four legacy commits on other local refs; those are outside this branch's
 history and were not modified. The frozen competence-time source JSONLs,
 summary, figures, result narrative, and rate-aware protocol are unchanged
-since preregistration, and the YAML is unchanged since `3bf4a83`.
+since preregistration, and the YAML is unchanged since `3bf4a83`. Fresh SHA-256
+and byte comparisons of these eight protected files match those baselines.
 
-The remaining independent audit/publication steps and the unstarted execution
-checklist are tracked in
+Remaining implementation limitations are explicit: execution assumes one
+writer; orphan checkpoints without a completed raw trajectory require explicit
+recovery and are never overwritten automatically; alias validation can cover
+only supplied or otherwise known result paths; and figure publication is
+atomic per image, not across both images. None changes the scientific rules
+or permits adaptive recovery.
+
+The remaining publication step and the unstarted execution checklist are tracked in
 [IMPLEMENTATION.md](experiments/rate_aware_clock/IMPLEMENTATION.md).
 
 ## Registered Mess3 geometry-threshold prediction
