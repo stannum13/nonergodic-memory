@@ -46,8 +46,10 @@ verdict is **falsified** (clock/competence MSE ratio 1.1795463140097937;
 clock wins 4/8 seeds), with every validity condition passing. The full report
 is [RESULTS.md](RESULTS.md). Final verification passed 470 tests in 260.77 s
 and `make smoke`, both exit 0; unrelated smoke schema rewrites were inspected
-and restored. Independent reviews are complete, with evidence below;
-push, PR, merge, and main synchronization remain pending.
+and restored. Independent reviews are complete, with evidence below. The
+complete branch was merged by
+[PR #2](https://github.com/stannum13/nonergodic-memory/pull/2) into local and
+remote `main` at merge commit `0c8c361`, with zero other open pull requests.
 The single-writer, explicit orphan-checkpoint recovery, known-path alias
 validation, and per-image publication
 limitations remain recorded in `STATE.md`.
@@ -252,8 +254,15 @@ limitations remain recorded in `STATE.md`.
   hashes and decision logic.
 - [x] Commit intended artifacts and result documentation with
   `git commit -m "experiment: report rate-aware clock validation"`.
-- [ ] Push all intended artifacts, open and merge a PR to `main`, and
+- [x] Push all intended artifacts, open and merge a PR to `main`, and
   verify local/remote `main` plus zero open PRs.
+
+Publication completed through
+[PR #2](https://github.com/stannum13/nonergodic-memory/pull/2): GitHub reported
+the branch clean and mergeable, merged it as `0c8c361`, and deleted the remote
+feature branch. Local `main` was fast-forwarded to the same commit; a fresh
+open-PR query returned none. The final post-result suite passed 480 tests, and
+the release smoke command passed before publication.
 
 ### Post-result review evidence
 
@@ -269,8 +278,7 @@ and the complete branch are complete:
   byte-identical figures; no Critical or Important findings.
 - Task reviewer `task6_review`: execution, artifacts, and reporting approved.
   Its only Important items were the then-pending review/publication gates,
-  not artifact defects. The review gates are now complete; publication is
-  still tracked by the unchecked push/PR/merge item above.
+  not artifact defects. The review and publication gates are now complete.
 - Whole-branch reviewer `whole_branch_review`: ready to merge YES; no Critical
   or Important findings. Independently matched summary, frozen hashes, and
   private-file exclusion.

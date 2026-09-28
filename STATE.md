@@ -4,7 +4,10 @@ Current status: the completed [rate-aware clock external validation](experiments
 is **falsified**: the clock/competence MSE ratio is 1.1795463140097937,
 with 4/8 clock wins and every registered validity check passing. The earlier
 post-initialization competence–time comparison remains supported; the global
-threshold prediction remains falsified. The opening hypothesis-through-next-
+threshold prediction remains falsified. The result and final parser/documentation
+polish were merged by [PR #2](https://github.com/stannum13/nonergodic-memory/pull/2)
+as `0c8c361`; local and remote `main` matched and no other pull request was open.
+The opening hypothesis-through-next-
 experiment material below is historical, retained from that earlier threshold
 loop; later sections record the subsequent experiments and locks.
 
@@ -235,10 +238,14 @@ byte-identically from raw JSONLs. Every seed error, artifact hash, validity
 check, execution log, and limitation is recorded in
 [RESULTS.md](experiments/rate_aware_clock/RESULTS.md).
 
-Final verification passed **470 tests in 260.77 seconds** and `make smoke`
-(both exit 0). The two unrelated smoke JSONL schema rewrites were inspected
-and restored; no source, configuration, protocol, or frozen evidence changed.
-Independent raw-result and whole-branch reviews remain required before merge.
+Final result verification passed **470 tests in 260.77 seconds** and
+`make smoke` (both exit 0). After the post-result duplicate-key/parser and
+documentation polish, a fresh release verification passed **480 tests** and
+`make smoke`; the two unrelated smoke JSONL schema rewrites were inspected and
+restored. Independent statistical, raw-integrity, task, whole-branch, and
+publication reviews approved the work with no remaining Critical, Important,
+or Minor findings. PR #2 merged the complete experiment into `main` as
+`0c8c361`; no source, configuration, protocol, or frozen evidence changed.
 
 The exploratory old-seed clock advantage did not meet the external
 transport prediction on new seeds. The earlier global threshold result remains
