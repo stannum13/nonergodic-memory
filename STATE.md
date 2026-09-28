@@ -24,6 +24,73 @@ The proposed global competence threshold is falsified as specified. Across initi
 
 Do not weaken the failed global criterion. The next smallest falsification is a new-seed preregistered two-regime analysis: treat initialization as a distinct categorical regime and compare competence versus step only among post-initialization checkpoints, using a model family fixed before examining new seeds. No additional training should begin until that specification is committed.
 
+## Competence–time dissociation: implementation lock
+
+This is a new preregistered confirmation experiment, not a revision of the
+completed v1.0 threshold loop above. The complete protocol, configuration,
+implementation, tests, and audit-figure code were locked at commit
+`667d96213ff1140bd624276febfac9180c3fb3be` (`667d962`) before any confirmation
+data generation. Its base configuration digest, calculated with the
+repository's `config_digest(load_config(...))`, is `f75dd20f93eb8827`.
+
+The prospective grid is seeds 30–37 across the four preregistered learning
+rates. At the lock, the repository tree contained no
+`checkpoints/mess3_competence_time/` checkpoint, no
+`results/mess3_competence_time_{training,probes,summary}.jsonl` result row, and
+no `figures/mess3_competence_time_{learning,loso}.png` figure. This lock does
+not alter the v1.0 result: v1.0 remains falsified as recorded above. At the
+lock, the new experiment had no generated confirmation data or verdict.
+
+## Competence–time dissociation: frozen confirmation result
+
+The new experiment completed on 2026-09-27 with the frozen verdict
+**supported**. Competence-only LOSO MSE is 0.008194242898 versus 0.017921418299
+for log-step, giving a ratio of **0.457231830704 < 0.80**. Competence wins in
+**8/8 held-out seeds**, exceeding the registered 7/8 requirement. The
+comparison contains exactly 256 post-initialization normal-control block-2
+component-posterior R² observations; each fold trains on 224 observations and
+holds out all 32 observations from one seed.
+
+Every registered validity check passes:
+
+- Shuffled-label control: maximum absolute primary component-posterior R²
+  is 0.011410204186, within the frozen 0.02 limit in every primary cell.
+- Initialization: all 32 step-0 training cells and 192 associated probe rows
+  are retained as controls and excluded from both primary regressions.
+- Seed grouping: all four rates and all eight primary checkpoints for each
+  held-out seed stay together; standardization uses training seeds only.
+- No probe leakage: all 1,728 raw overlap fields are zero. A supplemental
+  deterministic SHA-256 audit of the actual 64-token sequences also finds
+  zero fit/test, evaluation/fit, and evaluation/test intersections in every
+  seed (24 pairwise checks; 14,336 regenerated sequences).
+- Complete finite grid: 288 training rows, 1,728 probe rows, one summary,
+  and all 288 checkpoints; no missing or duplicate cells, non-finite recorded
+  metrics, or non-finite checkpoint tensors.
+- Rate dissociation: 8/8 seeds exceed the 0.10 fastest–slowest competence
+  difference at a shared checkpoint, meeting the required 6/8. Per-seed
+  maximum differences range from 0.611784259660 to 0.785649827456.
+- Provenance: every raw row and checkpoint matches the frozen base/rate
+  configuration, identity, CPU device, sampler, and checkpoint path. All
+  four same-seed initializations match exactly. Reanalysis reproduces the
+  saved summary exactly; `validity_failures` is empty.
+
+The unchanged `make competence-time` run took 8,559.58 seconds
+(2 h 22 min 39.58 s) on CPU, with no interruption, rerun, replacement,
+post-data tuning, or additional exclusions. Raw JSONLs, the exact log,
+per-fold metrics, every validity check, and figure limitations are recorded
+in [the experiment results](experiments/competence_time/RESULTS.md).
+
+This supports the preregistered post-initialization comparison for the tested
+grid. It does not establish causal use or generalization across architectures.
+The earlier v1.0 all-checkpoint prediction remains falsified; no secondary
+analysis rescues or revises it.
+
+Post-result maintenance after `9f3c264` hardens output compatibility,
+interruption recovery, invalid-data summary handling, and figure/raw-data
+consistency. It leaves the registered decision rules and all frozen result
+artifacts unchanged; see the post-result maintenance note in
+[RESULTS.md](experiments/competence_time/RESULTS.md).
+
 ## Registered Mess3 geometry-threshold prediction
 
 Registered before creating any `checkpoints/mess3_threshold/`, `results/mess3_threshold_*.jsonl`, or `figures/mess3_threshold_*.png` artifact. Configuration digest `d2423ea9f3b44075` uses confirmation seeds 20–24, learning rates 0.003 and 0.0015, fresh vectorized samples, and checkpoints 0/384/768/1,152/1,536/2,304/3,072. Same-seed rate conditions share initialization, the seed-indexed fresh batch at every step, held-out evaluation data, probe-fit data, and probe-test data.
