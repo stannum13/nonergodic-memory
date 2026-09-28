@@ -116,8 +116,58 @@ forecast may be refit or selected using confirmation geometry.
 
 At this configuration lock, no checkpoint, training/probe/audit/summary JSONL
 record, or figure exists for the rate-aware-clock experiment, and no seed
-40–47 data have been generated. The later implementation-lock commit and its
-independent audit must be recorded before any confirmation execution.
+40–47 data have been generated.
+
+## Rate-aware clock external validation: implementation lock
+
+The exact verified code-lock commit is
+`0521b0c719211006eb9b84c8342281c0d9803ac1` (`0521b0c`), before any confirmation
+execution. The documentation commit titled `docs: lock rate-aware experiment`
+records this public code boundary. Task-level implementation reviews are
+resolved; the independent whole-implementation audit and push of the locked
+branch remain pending and must be recorded before seeds 40–47 are executed.
+This is a code lock, not a confirmation result or verdict.
+
+Fresh verification at the code lock:
+
+- `PYTHONPATH=src pytest -q`: **357 passed in 124.27s (0:02:04)**, exit 0.
+- `make smoke`: exit 0; training, probing, interventions, and four legacy
+  figures completed. Only `results/smoke_training.jsonl` (2 rows) and
+  `results/smoke_reproduction.jsonl` (1,008 rows) changed among tracked files;
+  their unrelated generated rewrites were inspected and restored. The tree
+  was clean before the lock-documentation edits.
+- `config_digest(load_config("configs/mess3_rate_aware_clock.yaml"))`:
+  **`59f938bbff48f300`**, unchanged from the configuration lock.
+- `verify_forecast_provenance(config, Path("."))`: exit 0; all **256** eligible
+  retained source cells reproduce the frozen centers, population scales,
+  coefficients, and support bounds within absolute tolerance `1e-12`.
+  Training SHA-256 is
+  `2c90e72389db3a98e0c1196fffaf6bdf24f3492009460bfbe0c99f417315420f`;
+  probe SHA-256 is
+  `9a7aa242f267bddc2064c8ddf93c3163891167630d7dd3f0ea4e603993e3abd3`.
+
+The pre-execution scan enumerated the worktree including ignored files and
+every tree in the eight-commit history from preregistration `37d5201` through
+`0521b0c`, inclusive. The worktree contained 580 checkpoint/JSONL/image
+artifacts, including 513 checkpoints with identifiable nonconfirmation seeds
+and 44 JSONLs containing 74,576 rows. Historical trees contained 536 artifact
+entries and 44 distinct JSONL blobs (74,576 rows). Artifact paths were checked
+for the rate-aware experiment or seeds 40–47; every JSONL row was parsed and
+checked recursively for confirmation-seed identity and rate-aware identity.
+There were **zero matching checkpoint, JSONL, or figure artifacts** in either
+scope. Synthetic in-memory test fixtures are not generated confirmation data.
+
+`git ls-files .superpowers` and `git log 0521b0c -- .superpowers` both returned
+no entries: neither the tracked tree nor this branch's reachable history
+contains private `.superpowers` content. A broader `git log --all` check found
+four legacy commits on other local refs; those are outside this branch's
+history and were not modified. The frozen competence-time source JSONLs,
+summary, figures, result narrative, and rate-aware protocol are unchanged
+since preregistration, and the YAML is unchanged since `3bf4a83`.
+
+The remaining independent audit/publication steps and the unstarted execution
+checklist are tracked in
+[IMPLEMENTATION.md](experiments/rate_aware_clock/IMPLEMENTATION.md).
 
 ## Registered Mess3 geometry-threshold prediction
 

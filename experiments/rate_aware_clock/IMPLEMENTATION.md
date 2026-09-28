@@ -16,6 +16,21 @@ raw grids, performs seed-equal scoring and validity checks, and emits one of
 
 **Tech Stack:** Python 3, PyTorch, NumPy, Matplotlib, PyYAML, pytest, Make.
 
+## Public implementation-lock boundary
+
+Tasks 1–4 are implemented and their task-level independent reviews are resolved
+through code commit `0521b0c719211006eb9b84c8342281c0d9803ac1` (`0521b0c`).
+The checked RED/GREEN steps below reflect the recorded task reports and commit
+history. Fresh whole-suite and smoke verification, immutable-source checks,
+and worktree/history zero-artifact evidence are recorded in `STATE.md`.
+
+The documentation commit titled `docs: lock rate-aware experiment` records this
+exact code boundary; it introduces no scientific or implementation changes.
+Task 5's independent whole-implementation audit and publication of the lock
+remain pending until their evidence is recorded. No confirmation execution is
+permitted before those steps are complete. Task 6 remains unstarted, with no
+seed 40–47 confirmation data or verdict.
+
 ## Global constraints
 
 - No seed 40–47 checkpoint or metric may exist before the protocol/config lock.
@@ -46,17 +61,17 @@ raw grids, performs seed-equal scoring and validity checks, and emits one of
   `forecast.rate_aware_clock`, source hashes, confirmation grid, decision
   thresholds, and validity bounds.
 
-- [ ] Write a failing config-lock test that asserts exact seeds, rates, steps,
+- [x] Write a failing config-lock test that asserts exact seeds, rates, steps,
   model/data/probe settings, source hashes, centers, scales, coefficients,
   support ranges, ratio threshold 0.80, minimum wins 7, shuffled bound 0.02,
   dissociation threshold 0.10, and six-seed minimum.
-- [ ] Run `pytest -q tests/test_mess3_rate_aware_clock.py -k config`; verify it
+- [x] Run `pytest -q tests/test_mess3_rate_aware_clock.py -k config`; verify it
   fails because the config does not exist.
-- [ ] Add the exact YAML values from `PROTOCOL.md` and update `STATE.md` with
+- [x] Add the exact YAML values from `PROTOCOL.md` and update `STATE.md` with
   the pre-data hypothesis, frozen forecast provenance, and zero-artifact state;
   Task 5 records the later implementation-lock commit before execution.
-- [ ] Run the config test and verify it passes.
-- [ ] Commit with `git commit -m "experiment: lock rate-aware clock config"`.
+- [x] Run the config test and verify it passes.
+- [x] Commit with `git commit -m "experiment: lock rate-aware clock config"`.
 
 ### Task 2: Verify and evaluate immutable forecasts
 
@@ -72,27 +87,27 @@ raw grids, performs seed-equal scoring and validity checks, and emits one of
   MSEs, clock/competence ratio, strict clock-win count, per-seed errors,
   excluded initialization count, and provenance hashes.
 
-- [ ] Write failing tests that recompute both frozen coefficient sets from the
+- [x] Write failing tests that recompute both frozen coefficient sets from the
   retained old rows, reject one-bit source-hash/target/coefficient changes, and
   verify exact scalar forecasts.
-- [ ] Run the provenance tests; verify missing functions fail.
-- [ ] Implement SHA-256 verification, exact old-row selection, standardized
+- [x] Run the provenance tests; verify missing functions fail.
+- [x] Implement SHA-256 verification, exact old-row selection, standardized
   quadratic fitting with NumPy least squares, exact serialized config-constant
   checks, and absolute tolerance `1e-12` only for the independent numerical
   refit.
-- [ ] Run provenance tests and verify they pass.
-- [ ] Write synthetic failing analyzer tests for supported, valid falsified,
+- [x] Run provenance tests and verify they pass.
+- [x] Write synthetic failing analyzer tests for supported, valid falsified,
   ratio-pass/win-fail, shuffled failure, dissociation failure, out-of-support
   input, missing/duplicate/nonfinite cells, wrong token audit, accidental seed
   weighting by observations, exact `Q == 0.80`, strict per-seed ties, zero
   competence MSE, and extreme finite step-zero values excluded from support
   checks.
-- [ ] Implement structural validation, seed-equal scoring, manipulation checks,
+- [x] Implement structural validation, seed-equal scoring, manipulation checks,
   forecast-support checks, the registered zero-denominator ratio rule, and the
   validity-first three-way verdict.
-- [ ] Run `pytest -q tests/test_mess3_rate_aware_clock.py -k 'forecast or analysis'`
+- [x] Run `pytest -q tests/test_mess3_rate_aware_clock.py -k 'forecast or analysis'`
   and verify all tests pass.
-- [ ] Commit with `git commit -m "feat: add frozen forecast analysis"`.
+- [x] Commit with `git commit -m "feat: add frozen forecast analysis"`.
 
 ### Task 3: Add isolated resumable training, probing, and token audit
 
@@ -109,20 +124,20 @@ raw grids, performs seed-equal scoring and validity checks, and emits one of
 - Produces strict cache/preflight helpers that persist each completed trajectory
   and never overwrite incompatible/scientifically invalid evidence.
 
-- [ ] Write failing tiny-grid tests for paired initialization, exact checkpoint
+- [x] Write failing tiny-grid tests for paired initialization, exact checkpoint
   identity, complete training/probe keys, per-trajectory persistence on
   interruption, restart reuse, and rejection before side effects.
-- [ ] Run focused tests and observe the missing storage API failures.
-- [ ] Reuse the competence-time trainer/evaluator through experiment-specific
+- [x] Run focused tests and observe the missing storage API failures.
+- [x] Reuse the competence-time trainer/evaluator through experiment-specific
   enrichment and paths; implement atomic per-trajectory JSONL replacement.
-- [ ] Run storage tests and verify they pass.
-- [ ] Write failing audit tests with a deliberately duplicated token sequence
+- [x] Run storage tests and verify they pass.
+- [x] Write failing audit tests with a deliberately duplicated token sequence
   and with the normal deterministic disjoint sets.
-- [ ] Implement byte-stable token-row hashing, whole-dataset hashing, and all
+- [x] Implement byte-stable token-row hashing, whole-dataset hashing, and all
   three pairwise intersection counts per seed.
-- [ ] Run `pytest -q tests/test_mess3_rate_aware_clock.py -k 'training or probe or audit or cache'`
+- [x] Run `pytest -q tests/test_mess3_rate_aware_clock.py -k 'training or probe or audit or cache'`
   and verify all tests pass.
-- [ ] Commit with `git commit -m "feat: add rate-aware experiment storage"`.
+- [x] Commit with `git commit -m "feat: add rate-aware experiment storage"`.
 
 ### Task 4: Add CLI, Make target, and audit figures
 
@@ -140,20 +155,20 @@ raw grids, performs seed-equal scoring and validity checks, and emits one of
 - Figure generator consumes validated raw rows and a summary exactly equal to a
   fresh analysis, then writes the two protocol filenames.
 
-- [ ] Write a failing tiny CLI test using nonconfirmation seeds 6/7 that runs
+- [x] Write a failing tiny CLI test using nonconfirmation seeds 6/7 that runs
   `all` twice, verifies row counts and byte-stable reuse, and confirms that an
   invalid complete grid writes `inconclusive` without producer calls.
-- [ ] Implement argparse modes, preflight-before-side-effects, per-trajectory
+- [x] Implement argparse modes, preflight-before-side-effects, per-trajectory
   persistence, strict subset selection, and separate default artifact paths.
-- [ ] Run CLI tests and verify they pass.
-- [ ] Write failing figure tests for exact filenames, nonwhite pixels, step-zero
+- [x] Run CLI tests and verify they pass.
+- [x] Write failing figure tests for exact filenames, nonwhite pixels, step-zero
   separation, per-seed forecast errors, aggregate ratio/verdict, and stale
   same-digest summary rejection.
-- [ ] Implement the learning and fixed-forecast figures with complete-grid and
+- [x] Implement the learning and fixed-forecast figures with complete-grid and
   raw-reanalysis checks before plotting.
-- [ ] Run focused CLI/figure tests and verify they pass.
-- [ ] Add the shell script and Make target; run the tiny CLI twice again.
-- [ ] Commit with `git commit -m "feat: add rate-aware experiment command"`.
+- [x] Run focused CLI/figure tests and verify they pass.
+- [x] Add the shell script and Make target; run the tiny CLI twice again.
+- [x] Commit with `git commit -m "feat: add rate-aware experiment command"`.
 
 ### Task 5: Lock and independently audit the implementation
 
@@ -165,15 +180,17 @@ raw grids, performs seed-equal scoring and validity checks, and emits one of
 - Produces a public lock commit, configuration digest, old-source hashes, test
   evidence, and zero-artifact scan before confirmation execution.
 
-- [ ] Run `pytest -q` and `make smoke`; restore any unrelated generated result
-  rewrites and record exact counts/exit status.
-- [ ] Scan the working tree and git history for seed 40–47 rate-aware
+- [x] Run `PYTHONPATH=src pytest -q` and `make smoke`; restore any unrelated
+  generated result rewrites and record exact counts/exit status.
+- [x] Scan the working tree and git history for seed 40–47 rate-aware
   checkpoints, JSONL rows, or figures; require zero before lock.
-- [ ] Record the implementation lock commit and config digest in `STATE.md`.
+- [x] Record the implementation lock commit and config digest in `STATE.md`.
 - [ ] Have an independent reviewer audit protocol/code/test agreement and fix
   every Critical or Important finding without changing the scientific rules.
-- [ ] Push the locked branch and commit checklist evidence with
+- [x] Commit checklist evidence with
   `git commit -m "docs: lock rate-aware experiment"`.
+- [ ] Push the locked branch after the independent audit is resolved and record
+  the published lock boundary.
 
 ### Task 6: Execute, audit, interpret, and publish the frozen result
 
