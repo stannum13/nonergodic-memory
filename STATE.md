@@ -273,3 +273,25 @@ For the exact published two-Mess3 source, trained Transformer joint-belief R² w
 Registered before creating any diagnosis checkpoint, JSONL record, or figure. Configuration digest `aa2de784730aa352` compares `reused` and `fresh` sequence conditions for exploratory seeds 10 and 11 at steps 0, 768, and 3,072. Both conditions use the same initialized width-32 two-layer Transformer, sequence length 64, batch size 64, AdamW settings, and supervised tokens per update. The reused condition traverses a deterministic fixed pool of 2,048 sequences; the fresh condition samples a new batch of 64 sequences at every update.
 
 The primary prediction is: at step 3,072, fresh-data training has lower held-out exact-predictive KL than reused-data training in both seeds 10 and 11. Layerwise component-posterior, conditional-state, and six-coordinate weighted joint-belief recovery are secondary outcomes with no directional success criterion. Seeds 10 and 11 are exploratory and cannot be reused for later confirmation.
+# Current hypothesis: persistent source-belief edits
+
+**Registered 2026-09-28, before implementation or result generation.** A
+minimum-norm edit to a transformer's retained block-1 prefix memory that changes
+only exact Mess3 component log odds will induce the corresponding analytic
+second-token conditional response after one newly observed token. The complete
+locked protocol, feasibility gates, controls, seed boundaries, and stopping rule
+are in `experiments/predictive_memory/PROTOCOL.md`; fixed parameters are in
+`configs/predictive_memory.yaml`. Development uses model seeds 10/11, held-out
+pilot validation uses 20--24 only after both development gates pass, seeds 30--47
+are excluded, and any future confirmation is reserved to fresh model seeds
+50--57. This is a bounded causal pilot, not a claim of confirmation.
+
+**Last experiment.** The rate-aware external clock validation was validly
+falsified and published in v1.x history. No predictive-memory result exists at
+this lock.
+
+**Next smallest experiment.** Implement and independently audit the exact
+counterfactual operators, distributed-prefix actuator, persistent rollout,
+controls, evidence validator, and figures. Then run the single registered command
+on CPU. If either development seed misses any gate, stop as actuator infeasible
+without searching another intervention.
