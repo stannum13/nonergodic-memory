@@ -46,7 +46,8 @@ verdict is **falsified** (clock/competence MSE ratio 1.1795463140097937;
 clock wins 4/8 seeds), with every validity condition passing. The full report
 is [RESULTS.md](RESULTS.md). Final verification passed 470 tests in 260.77 s
 and `make smoke`, both exit 0; unrelated smoke schema rewrites were inspected
-and restored. Independent reviews and publication are tracked below.
+and restored. Independent reviews are complete, with evidence below;
+push, PR, merge, and main synchronization remain pending.
 The single-writer, explicit orphan-checkpoint recovery, known-path alias
 validation, and per-image publication
 limitations remain recorded in `STATE.md`.
@@ -246,10 +247,45 @@ limitations remain recorded in `STATE.md`.
 - [x] Regenerate both figures only from committed raw JSONLs and verify hashes
   are stable.
 - [x] Run `pytest -q` and `make smoke`; restore unrelated generated rewrites.
-- [ ] Obtain independent raw-result and whole-branch reviews; fix code-quality
+- [x] Obtain independent raw-result and whole-branch reviews; fix code-quality
   defects only in clearly labeled post-result commits, preserving raw artifact
   hashes and decision logic.
 - [x] Commit intended artifacts and result documentation with
   `git commit -m "experiment: report rate-aware clock validation"`.
 - [ ] Push all intended artifacts, open and merge a PR to `main`, and
   verify local/remote `main` plus zero open PRs.
+
+### Post-result review evidence
+
+The independent reviews of result commit `2326d442b96751edcfb1855b6b2bb6740e6c2b48`
+and the complete branch are complete:
+
+- Statistical reviewer `lock_council_methods`: APPROVE. Independently
+  recomputed every seed and aggregate score, ratio 1.1795463140097937, 4/8
+  clock wins, and every validity condition; no Critical or Important findings.
+- Raw-artifact reviewer `lock_council_integrity`: APPROVE. Verified record
+  counts 128/768/8/1, all 128 checkpoint hashes/finiteness/pairing, 24 zero
+  token intersections, 64 clean attempt events, exact fresh summary, and
+  byte-identical figures; no Critical or Important findings.
+- Task reviewer `task6_review`: execution, artifacts, and reporting approved.
+  Its only Important items were the then-pending review/publication gates,
+  not artifact defects. The review gates are now complete; publication is
+  still tracked by the unchecked push/PR/merge item above.
+- Whole-branch reviewer `whole_branch_review`: ready to merge YES; no Critical
+  or Important findings. Independently matched summary, frozen hashes, and
+  private-file exclusion.
+- Publication reviewer `publication_review`: APPROVE; no Critical or Important
+  findings. Minor documentation corrections are included in the post-result
+  parser/documentation commit.
+
+The post-result polish rejects duplicate JSON keys at every nesting level
+while retaining nonfinite-value scientific classification, supplies isolated
+reproduction paths, corrects record-provenance descriptions, completes the
+filter initialization, and labels the opening STATE material historical.
+Raw artifacts, checkpoints, frozen configuration/protocol, and decision logic
+are preserved. Focused tests observed six expected duplicate-key failures
+before the fix, then all ten duplicate-key/nonfinite-preservation cases passed.
+The full suite passed 480 tests in 255.68 s. All six result artifact hashes,
+eight protected hashes, 128 checkpoint hashes, and the attempt-log hash remain
+unchanged; documentation value/link checks and `git diff --check` pass.
+The final private polish report retains the verification evidence.

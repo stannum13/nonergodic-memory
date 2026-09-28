@@ -138,8 +138,8 @@ records, and no NaN/Infinity or nonfinite nested numeric values. Every training
 and probe row records CPU execution and Python 3.14.2, NumPy 2.4.1, PyTorch 2.11.0.
 Recorded competence exactly equals `1 - kl_exact / uniform_kl` and uses
 14,336 evaluated prediction positions per checkpoint. Step zero contributes
-to neither forecast error nor predictor-support validation. The code,
-configuration, protocol, and all frozen competence-time artifacts remain
+to neither forecast error nor predictor-support validation. At execution, the
+code, configuration, protocol, and all frozen competence-time artifacts were
 byte-identical to the pre-execution lock.
 
 ## Execution and verification
@@ -180,8 +180,17 @@ Final verification: `PYTHONPATH=src pytest -q` passed **470 tests in 260.77 s**
 and all four legacy figures, exit 0. Its unrelated rewrites of
 `results/smoke_training.jsonl` and `results/smoke_reproduction.jsonl` were
 inspected: every original field was unchanged, with only current-schema fields
-added. Exactly those two files were restored. Independent raw-result and
-whole-branch reviews remain a publication gate.
+added. Exactly those two files were restored. Independent statistical,
+raw-result, Task 6, whole-branch, and publication reviews subsequently
+completed; evidence is recorded in [IMPLEMENTATION.md](IMPLEMENTATION.md).
+
+Post-result maintenance hardens JSONL parsing to reject duplicate object keys
+at any nesting level, preserving nonfinite-value scientific classification,
+and clarifies the documentation. It does not change raw JSONLs, figures,
+checkpoints, configuration, protocol, frozen competence-time evidence, or
+registered decision logic. Post-result verification passed all **480 tests
+in 255.68 s**; all six result artifact hashes and protected-file hashes
+remain unchanged.
 
 ## Figures and reproducibility
 
@@ -204,7 +213,9 @@ A checkpoint-free figure regeneration uses only configuration and checked-in
 raw JSONLs; it does not train or probe:
 
 ```bash
-PYTHONPATH=src python - <<'PY'
+RATE_AWARE_FIGURES="$(mktemp -d)"
+PYTHONPATH=src python - "$RATE_AWARE_FIGURES" <<'PY'
+import sys
 from nonergodic_memory.experiment import load_config
 from nonergodic_memory.mess3_rate_aware_clock import read_rate_aware_jsonl
 from nonergodic_memory.mess3_rate_aware_clock_figures import generate_rate_aware_clock_figures
@@ -213,14 +224,32 @@ training, probes, audit, summaries = [
     read_rate_aware_jsonl(f"results/mess3_rate_aware_clock_{kind}.jsonl")
     for kind in ("training", "probes", "audit", "summary")
 ]
-generate_rate_aware_clock_figures(config, training, probes, audit, summaries[0], "figures")
+generate_rate_aware_clock_figures(config, training, probes, audit, summaries[0], sys.argv[1])
 PY
 ```
 
 The full CLI deliberately rejects raw records without their matching
-checkpoints. A fresh clone therefore uses the recipe above for figures;
-an independent training reproduction must use separate empty result and
-checkpoint paths rather than overwrite the retained confirmation evidence.
+checkpoints. A fresh clone can use the recipe above for figures. After
+installing the dependencies described in the README, run this from the
+repository root for an independent full training reproduction. It creates a
+new directory and explicitly places every generated artifact there:
+
+```bash
+RATE_AWARE_REPRO="$(mktemp -d)"
+PYTHONPATH=src python src/mess3_rate_aware_clock.py \
+  --config configs/mess3_rate_aware_clock.yaml --mode all \
+  --checkpoint-dir "$RATE_AWARE_REPRO/checkpoints" \
+  --training-results "$RATE_AWARE_REPRO/training.jsonl" \
+  --probe-results "$RATE_AWARE_REPRO/probes.jsonl" \
+  --audit-results "$RATE_AWARE_REPRO/audit.jsonl" \
+  --summary-results "$RATE_AWARE_REPRO/summary.jsonl" \
+  --output-dir "$RATE_AWARE_REPRO/figures"
+```
+
+The registered CPU run took about 58 minutes. The reproduction reads the
+committed old-data sources for forecast provenance and preserves the retained
+confirmation evidence. Retain the directory named by `RATE_AWARE_REPRO` to
+keep the new checkpoints and results.
 Checkpoint-free retraining equality and equality across library/BLAS versions
 were not tested in this confirmation.
 
@@ -258,8 +287,9 @@ Linear recoverability does not show causal use of the representation, and
 there is no intervention in this experiment. Both simple quadratic forecasts
 can miss seed-specific or non-quadratic dynamics.
 
-No thresholds, exclusions, seeds, predictors, coefficients, code, or plots
-were changed after inspection. No secondary analysis rescues the failed
+No thresholds, exclusions, seeds, predictors, coefficients, analysis logic,
+or plots were changed after inspection. The parser/documentation maintenance
+above is separate from the frozen execution. No secondary analysis rescues the failed
 prediction. Any causal-predictive-memory pilot is a separate exploratory study
 requiring its own committed numerical compute budget, development/confirmation
 allocation, intervention-validity criteria, and stopping rule before it begins.

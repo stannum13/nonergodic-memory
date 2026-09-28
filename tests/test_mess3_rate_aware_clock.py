@@ -58,6 +58,31 @@ def _storage_run(tmp_path, seeds=(3,), rates=(.003, .006)):
     return config, root, output, rows
 
 
+@pytest.mark.parametrize("payload", [
+    '{"record_type":"rate_aware_clock_training","seed":40,"seed":41}',
+    '{"record_type":"rate_aware_clock_probe","component_posterior_r2":0.1,"component_posterior_r2":0.2}',
+    '{"kind":"training","status":"failed","status":"completed"}',
+    '{"kind":"training","scientific_failure":true,"scientific_failure":false}',
+    '{"provenance":{"seed":40,"seed":40}}',
+    '{"attempts":[{"details":{"reason":"nonfinite","reason":"infrastructure"}}]}',
+])
+def test_read_jsonl_rejects_duplicate_object_keys(tmp_path, payload):
+    evidence = tmp_path / "evidence.jsonl"
+    evidence.write_text(payload + "\n")
+    with pytest.raises(ValueError, match="cannot read rate-aware evidence"):
+        _api("read_rate_aware_jsonl")(evidence)
+    assert evidence.read_text() == payload + "\n"
+
+
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity", "1e999"])
+def test_read_jsonl_preserves_nonfinite_values_for_scientific_classification(tmp_path, constant):
+    evidence = tmp_path / "evidence.jsonl"
+    evidence.write_text('{"metric":' + constant + ',"nested":{"finite":1.0}}\n')
+    rows = _api("read_rate_aware_jsonl")(evidence)
+    assert not np.isfinite(rows[0]["metric"])
+    assert rows[0]["nested"] == {"finite": 1.0}
+
+
 def test_training_pairs_initialization_and_records_exact_checkpoint_identity(tmp_path):
     config, root, output, rows = _storage_run(tmp_path)
     assert len(rows) == 4

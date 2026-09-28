@@ -437,8 +437,17 @@ def _validate_storage_paths(config, checkpoint_root, outputs, *, protected=(), d
 
 def read_rate_aware_jsonl(path) -> list[dict]:
     """Read existing evidence strictly; absence is handled by the caller."""
+    def unique_object(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError(f"duplicate JSON object key: {key}")
+            result[key] = value
+        return result
+
     try:
-        rows = [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()]
+        rows = [json.loads(line, object_pairs_hook=unique_object)
+                for line in Path(path).read_text().splitlines() if line.strip()]
     except (OSError, ValueError) as error:
         raise ValueError(f"cannot read rate-aware evidence: {path}") from error
     if any(not isinstance(row, dict) for row in rows):

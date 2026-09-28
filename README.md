@@ -61,7 +61,11 @@ Sₜ | Sₜ₋₁,C=c ~ Categorical(A_c[Sₜ₋₁, :])
 Xₜ | Sₜ,C=c ~ Categorical(B_c[Sₜ, :]).
 ```
 
-The exact filter updates the joint belief after observing `x_t`:
+The exact filter initializes the joint belief after observing `x_0`:
+
+`q_0(c,s) ∝ w_c π_c(s) B_c[s,x_0]`.
+
+For `t >= 1`, it updates the joint belief after observing `x_t`:
 
 `q_t(c,s) ∝ B_c[s,x_t] Σ_s' q_{t-1}(c,s') A_c[s',s]`,
 
@@ -263,7 +267,7 @@ and [results](experiments/rate_aware_clock/RESULTS.md).
 - `src/probe.py`: held-out classifiers, posterior regressions, shuffled labels, untrained controls, and PCA coordinates.
 - `src/intervene.py`: learned, random, norm-matched, and shuffled-label subspace interventions.
 - `configs/`: smoke and central CPU configurations.
-- `results/`: raw JSONL records; every result states model, seed, condition, and device.
+- `results/`: JSONL evidence; training/probe rows include model/run identity, configuration digests, device, and runtime versions. Audit and summary records carry experiment-specific provenance.
 - `figures/`: regenerated exclusively from JSONL.
 - `results/mess3_training.jsonl` and `results/mess3_reproduction.jsonl`: registered Mess3 training, normal/shuffled trained/untrained probes, and six exact plus six reconstructed belief coordinates per geometry point.
 - `figures/mess3_geometry.png` and `figures/mess3_metrics.png`: descriptive weighted-coordinate projections and quantitative held-out joint-belief/distortion metrics.
@@ -292,7 +296,7 @@ After observing token `x_t`, the filter stores the component posterior `p(c | x_
 
 ## Reproducibility boundary
 
-Runs are deterministic on the tested CPU environment: data, initialization, batch order, probes, and random controls all use explicit seeds. Checkpoints are generated rather than versioned and are validated against the complete requested configuration, model, and seed before analysis. Partial CLI reruns atomically replace only matching result cells and preserve the rest of the grid. Raw records include a config hash and Python, NumPy, and PyTorch versions. Exact bitwise equality across different PyTorch/BLAS versions is not promised.
+Runs are deterministic on the tested CPU environment: data, initialization, batch order, probes, and random controls all use explicit seeds. Checkpoints are generated rather than versioned and are validated against the complete requested configuration, model, and seed before analysis. Partial CLI reruns atomically replace only matching result cells and preserve the rest of the grid. Training/probe rows include model/run identity, configuration digests, device, and Python, NumPy, and PyTorch versions; audit and summary records instead carry experiment-specific provenance. Exact bitwise equality across different PyTorch/BLAS versions is not promised.
 
 A checkpoint-free clone audit of the earlier two-state artifact ran its commands, all eleven sweeps, and the then-current 65 tests. Numerical JSONL values reproduced exactly and every figure was byte-identical on the recorded CPU environment. The new Mess3 run has a separate cached-checkpoint determinism audit described in `report.md`.
 

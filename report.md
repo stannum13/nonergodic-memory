@@ -220,7 +220,13 @@ seeds provide limited power. No causal intervention was performed.
 
 ## Analytic ground truth
 
-A component `c` is sampled once per sequence. For each observed token, the filter updates joint mass
+A component `c` is sampled once per sequence with probability `w_c`, and its
+initial state has distribution `π_c`. After observing the first token, the
+filter initializes joint mass with emission matrix `B_c`:
+
+`q_0(c,s) ∝ w_c π_c(s) B_c[s,x_0]`.
+
+For each subsequent observed token (`t >= 1`), the filter updates joint mass
 
 `q_t(c,s) ∝ p(x_t | s,c) Σ_s' q_{t-1}(c,s') p(s | s',c)`.
 

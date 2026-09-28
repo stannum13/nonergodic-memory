@@ -1,5 +1,13 @@
 # Experimental state
 
+Current status: the completed [rate-aware clock external validation](experiments/rate_aware_clock/RESULTS.md)
+is **falsified**: the clock/competence MSE ratio is 1.1795463140097937,
+with 4/8 clock wins and every registered validity check passing. The earlier
+post-initialization competence–time comparison remains supported; the global
+threshold prediction remains falsified. The opening hypothesis-through-next-
+experiment material below is historical, retained from that earlier threshold
+loop; later sections record the subsequent experiments and locks.
+
 ## Hypothesis
 
 For the exact published two-Mess3 mixture, component geometry emerges when the model becomes predictively competent, rather than at a fixed optimizer step. Across paired fresh-data learning curves, predictive competence should therefore explain held-out block-2 component-posterior R² better than update count does.
