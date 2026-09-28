@@ -1,0 +1,2 @@
+{"event": "started", "experiment_config_sha256": "7b076ce5a049c176", "record_type": "attempt"}
+{"event": "finished", "status": "actuator_infeasible"}

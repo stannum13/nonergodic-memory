@@ -1,0 +1,33 @@
+experiment:
+  name: predictive_memory
+  prefix_length: 32
+  intervention_depth: 0
+  ridge_alpha: 1.0
+  pseudoinverse_rcond: 0.001
+  doses: [-0.6931471805599453, 0.0, 0.6931471805599453]
+  random_controls: 8
+  wall_time_minutes: 60
+models:
+  development_seeds: [10, 11]
+  heldout_seeds: [20, 21, 22, 23, 24]
+  checkpoints: [0, 3072]
+  primary_checkpoint: 3072
+  learning_rate: 0.003
+data:
+  actuator_fit: 2048
+  decoder_fit: 1024
+  calibration: 128
+  evaluation: 128
+gates:
+  component_r2_min: 0.20
+  joint_r2_min: 0.50
+  actuator_rank_min: 5
+  actuator_constraint_relative_error_max: 0.0000000001
+  displacement_relative_error_max: 0.50
+  oracle_denominator_min: 0.000001
+  identity_atol: 0.000001
+  exact_atol: 0.0000000001
+decision:
+  mean_score_min: 0.20
+  control_margin_min: 0.10
+  require_all_heldout_positive: true

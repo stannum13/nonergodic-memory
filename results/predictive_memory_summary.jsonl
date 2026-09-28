@@ -1,0 +1,1 @@
+{"config_sha256": "7b076ce5a049c176", "elapsed_seconds": 8.71642754226923, "numpy_version": "2.4.1", "python_version": "3.14.2", "record_type": "summary", "result_rows": 4, "stage": "development", "status": "actuator_infeasible", "torch_version": "2.11.0"}

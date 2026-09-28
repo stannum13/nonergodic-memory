@@ -1,12 +1,13 @@
 # Experimental state
 
-Current status: the completed [rate-aware clock external validation](experiments/rate_aware_clock/RESULTS.md)
-is **falsified**: the clock/competence MSE ratio is 1.1795463140097937,
-with 4/8 clock wins and every registered validity check passing. The earlier
-post-initialization competence–time comparison remains supported; the global
-threshold prediction remains falsified. The result and final parser/documentation
-polish were merged by [PR #2](https://github.com/stannum13/nonergodic-memory/pull/2)
-as `0c8c361`; local and remote `main` matched and no other pull request was open.
+Current status: the [predictive-memory causal pilot](experiments/predictive_memory/RESULTS.md)
+is **actuator infeasible** at its registered development gate. Whole-prefix
+component and five-coordinate joint belief are strongly decodable, but the
+worst-dose independent displacement errors are 0.613391/0.658563, above the
+locked 0.50 maximum in both seeds. No causal response or held-out model was
+evaluated. The earlier rate-aware clock validation remains falsified, the
+post-initialization competence–time comparison remains supported, and the global
+threshold prediction remains falsified.
 The opening hypothesis-through-next-
 experiment material below is historical, retained from that earlier threshold
 loop; later sections record the subsequent experiments and locks.
@@ -273,3 +274,79 @@ For the exact published two-Mess3 source, trained Transformer joint-belief R² w
 Registered before creating any diagnosis checkpoint, JSONL record, or figure. Configuration digest `aa2de784730aa352` compares `reused` and `fresh` sequence conditions for exploratory seeds 10 and 11 at steps 0, 768, and 3,072. Both conditions use the same initialized width-32 two-layer Transformer, sequence length 64, batch size 64, AdamW settings, and supervised tokens per update. The reused condition traverses a deterministic fixed pool of 2,048 sequences; the fresh condition samples a new batch of 64 sequences at every update.
 
 The primary prediction is: at step 3,072, fresh-data training has lower held-out exact-predictive KL than reused-data training in both seeds 10 and 11. Layerwise component-posterior, conditional-state, and six-coordinate weighted joint-belief recovery are secondary outcomes with no directional success criterion. Seeds 10 and 11 are exploratory and cannot be reused for later confirmation.
+# Current hypothesis: persistent source-belief edits
+
+**Registered 2026-09-28, before implementation or result generation.** A
+minimum-norm edit to a transformer's retained block-1 prefix memory that changes
+only exact Mess3 component log odds will induce the corresponding analytic
+second-token conditional response after one newly observed token. The complete
+locked protocol, feasibility gates, controls, seed boundaries, and stopping rule
+are in `experiments/predictive_memory/PROTOCOL.md`; fixed parameters are in
+`configs/predictive_memory.yaml`. Development uses model seeds 10/11, held-out
+pilot validation uses 20--24 only after both development gates pass, seeds 30--47
+are excluded, and any future confirmation is reserved to fresh model seeds
+50--57. This is a bounded causal pilot, not a claim of confirmation.
+
+**Last experiment.** The rate-aware external clock validation was validly
+falsified and published in v1.x history. No predictive-memory result exists at
+this lock.
+
+**Next smallest experiment.** Implement and independently audit the exact
+counterfactual operators, distributed-prefix actuator, persistent rollout,
+controls, evidence validator, and figures. Then run the single registered command
+on CPU. If either development seed misses any gate, stop as actuator infeasible
+without searching another intervention.
+
+## Predictive-memory implementation lock
+
+**Locked 2026-09-28 before any result-bearing checkpoint evaluation.** The
+configuration digest is `7b076ce5a049c176`. Independent theory, causal, and
+methods audits blocked the first draft before execution. Their findings were
+resolved by adding full latent-path oracle enumeration, a five-direction
+pseudoinverse rank/construction-residual gate, signed norm-matched random
+controls, exact-grid and finite-evidence validation, strict parent-checkpoint and
+configuration locks, atomic evidence snapshots, an exclusive attempt ledger, a
+full-command external 60-minute watchdog, and explicit held-out calibration and
+status rules. The dated clarification is public in
+`experiments/predictive_memory/PROTOCOL.md`. No `predictive_memory` result,
+summary, attempt record, or figure existed at this lock. The next action is a
+second independent implementation audit; only an approval permits the one
+registered `make predictive-memory` run.
+
+**Execution approved 2026-09-28.** After two blocking review rounds and their
+fixes, independent theory, causal, and methods reviewers approved implementation
+HEAD `2be13f87ce05749675291f34dfbe66d74fd911ea` with no remaining Critical or
+Important findings. A fresh full verification passed 508 tests in 261.47 seconds.
+The outer command reservation, scientific attempt record, raw result, scientific
+summary, command status, and figure were all absent. The only permitted next
+action is the single fixed `make predictive-memory` execution; no implementation
+or criterion may change in response to its measurements.
+
+## Predictive-memory causal pilot: frozen result
+
+The single registered `/usr/bin/time -p make predictive-memory` command completed
+normally in 16.17 seconds wall time. It produced two split audits and two trained
+development calibration rows, then stopped before behavioral evaluation because
+both development models failed the independent-decoder displacement criterion:
+0.6133913055662932 and 0.658562931053291, versus the required maximum 0.50.
+Component-posterior R² was 0.892812/0.908015 and five-coordinate joint-belief R²
+was 0.780860/0.788348. Rank, construction residual, intervention scale, oracle
+signal, identity, exact-enumeration, finiteness, and split-isolation gates all
+passed. There are zero response rows and zero held-out-model rows.
+
+Independent post-result theory, causal, and methods audits reproduce the status
+and approve the interpretation. The result establishes that this specified
+whole-prefix inverse-decoder actuator is not valid under the frozen cross-decoder
+criterion. It provides neither positive nor negative evidence about the unmeasured
+causal predictive response. Complete evidence, hashes, and limitations are in
+`experiments/predictive_memory/RESULTS.md`.
+
+Post-result release verification passed **511 tests in 261.91 seconds** on CPU;
+the retained-evidence regression independently reconstructs the frozen
+`actuator_infeasible` verdict from the checked-in JSONL.
+
+**Next smallest experiment.** Do not relax the failed 0.50 gate or search another
+site on seeds 10/11 or 20--24. A genuinely new study should preregister a
+manifold-constrained or multi-decoder-consensus actuator, develop it without
+opening the reserved confirmation seeds 50--57, and require the same independent
+fidelity gate before any behavioral claim.

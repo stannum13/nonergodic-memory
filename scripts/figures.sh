@@ -14,3 +14,6 @@ python -m nonergodic_memory.short_figures
 python -m nonergodic_memory.budget_figures
 python -m nonergodic_memory.gru_budget_figures
 python -m nonergodic_memory.mess3_figures
+if [[ -f results/predictive_memory.jsonl ]]; then
+  python -m nonergodic_memory.predictive_memory_figures
+fi
