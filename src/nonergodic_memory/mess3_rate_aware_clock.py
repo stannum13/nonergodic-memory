@@ -12,6 +12,7 @@ import shutil
 from datetime import datetime, timezone
 from collections import Counter
 from collections.abc import Mapping
+from itertools import combinations
 from pathlib import Path
 
 import numpy as np
@@ -131,7 +132,9 @@ def _integer(value) -> int:
     return int(value)
 
 
-def _validate_grid(config: dict, training: list[dict], probes: list[dict], *, require_complete=True) -> None:
+def _validate_grid(config: dict, training: list[dict], probes: list[dict], *, require_complete=True,
+                   check_science=True) -> None:
+    """Check raw identity always; optionally require scientific validity/completeness."""
     experiment = config["rate_aware_clock"]
     expected = {(seed, rate, step) for seed in experiment["seeds"]
                 for rate in experiment["learning_rates"] for step in config["train"]["checkpoint_steps"]}
@@ -143,7 +146,7 @@ def _validate_grid(config: dict, training: list[dict], probes: list[dict], *, re
         selected = copy.deepcopy(config)
         selected["train"]["learning_rate"] = rate
         rate_digests[rate] = config_digest(selected)
-    paths = {}
+    paths, parameters = {}, {}
     for label, rows, metrics, expected_cells in (
         ("training", training, ("competence", "kl_exact", "nll", "uniform_kl"), expected),
         ("probe", probes, ("component_accuracy", "component_posterior_r2", "conditional_state_accuracy",
@@ -180,22 +183,27 @@ def _validate_grid(config: dict, training: list[dict], probes: list[dict], *, re
                 raise ValueError("training/probe checkpoint path mismatch")
             paths[cell] = checkpoint
             if not all(isinstance(row[metric], (int, float)) and not isinstance(row[metric], bool)
-                       and np.isfinite(row[metric]) for metric in metrics):
+                       and (not check_science or np.isfinite(row[metric])) for metric in metrics):
                 raise ValueError("missing, nonnumeric or nonfinite required metric")
+            if row.get("parameters_finite") is not True or not _is_sha256(row.get("parameter_sha256")):
+                raise ValueError("nonfinite or unaudited model parameters")
+            if cell in parameters and parameters[cell] != row["parameter_sha256"]:
+                raise ValueError("training/probe parameter binding mismatch")
+            parameters[cell] = row["parameter_sha256"]
             if label == "training":
-                if row.get("parameters_finite") is not True or not _is_sha256(row.get("parameter_sha256")):
-                    raise ValueError("nonfinite or unaudited model parameters")
                 keys.append(cell)
             else:
-                if float(row.get("probe_sequence_overlap", -1)) != 0:
+                overlap = _integer(row.get("probe_sequence_overlap", -1))
+                if overlap < 0 or (check_science and overlap != 0):
                     raise ValueError("probe sequence overlap")
                 keys.append((*cell, row["site"], row["control"]))
-        if (any(count != 1 for count in Counter(keys).values()) or not set(keys) <= expected_cells
-                or (require_complete and set(keys) != expected_cells)):
+        if (not set(keys) <= expected_cells or (check_science and (
+                any(count != 1 for count in Counter(keys).values())
+                or (require_complete and set(keys) != expected_cells)))):
             raise ValueError(f"missing, duplicate or unexpected {label} cells")
 
 
-def _validate_audit(config: dict, audit: list[dict]) -> None:
+def _validate_audit(config: dict, audit: list[dict], *, require_isolation=True) -> None:
     expected_counts = {"evaluation": config["data"]["test_sequences"],
                        "probe_fit": config["probe"]["train_sequences"],
                        "probe_test": config["probe"]["test_sequences"]}
@@ -216,10 +224,16 @@ def _validate_audit(config: dict, audit: list[dict]) -> None:
             if (not _is_sha256(dataset["sha256"]) or _integer(dataset["n_rows"]) != count
                     or not 1 <= _integer(dataset["n_unique_rows"]) <= count):
                 raise ValueError("invalid token dataset hash or count")
-        if any(_integer(value) != 0 for value in row["intersections"].values()):
-            raise ValueError("token arrays overlap")
+        if any(_integer(value) < 0 for value in row["intersections"].values()):
+            raise ValueError("audit intersections must be nonnegative")
     if len(seeds) != len(set(seeds)) or set(seeds) != set(config["rate_aware_clock"]["seeds"]):
         raise ValueError("missing, duplicate or unexpected audit seeds")
+    expected = _reconstruct_token_audit(config, sorted(seeds))
+    if json.dumps(sorted(audit, key=lambda row: row["seed"]), sort_keys=True, allow_nan=False) != json.dumps(
+            expected, sort_keys=True, allow_nan=False):
+        raise ValueError("cached token audit differs from deterministic reconstruction")
+    if require_isolation and any(value for row in audit for value in row["intersections"].values()):
+        raise ValueError("token arrays overlap")
 
 
 def _score_forecasts(config: dict, cells: dict, primary_probes: list[dict]) -> dict:
@@ -247,13 +261,19 @@ def _score_forecasts(config: dict, cells: dict, primary_probes: list[dict]) -> d
     result = {
         "observations": sum(row["observations"] for row in per_seed), "per_seed": per_seed,
         "clock_mse": clock, "competence_mse": competence,
-        "clock_to_competence_mse_ratio": clock / competence if competence > 0 else None,
-        "competence_to_clock_mse_ratio": competence / clock if clock > 0 else None,
         "clock_seed_wins": sum(row["clock_mse"] < row["competence_mse"] for row in per_seed),
         "competence_seed_wins": sum(row["competence_mse"] < row["clock_mse"] for row in per_seed),
     }
-    if competence == 0:
-        result["ratio_reason"] = "zero_competence_mse"
+    for name, numerator, denominator, reason_key, zero_reason in (
+        ("clock_to_competence_mse_ratio", clock, competence, "ratio_reason", "zero_competence_mse"),
+        ("competence_to_clock_mse_ratio", competence, clock, "inverse_ratio_reason", "zero_clock_mse"),
+    ):
+        ratio = numerator / denominator if denominator > 0 else None
+        result[name] = ratio if ratio is not None and np.isfinite(ratio) else None
+        if ratio is None:
+            result[reason_key] = zero_reason
+        elif not np.isfinite(ratio):
+            result[reason_key] = f"nonfinite_{name}"
     return result
 
 
@@ -350,6 +370,9 @@ def analyze_rate_aware_clock(config, training, probes, audit) -> dict:
             failures.append("nonfinite_analysis")
         result["analysis_error"] = str(error)
         return result
+    if any(str(result["primary"].get(key, "")).startswith("nonfinite_")
+           for key in ("ratio_reason", "inverse_ratio_reason")) and "nonfinite_analysis" not in failures:
+        failures.append("nonfinite_analysis")
     if not failures:
         scores = result["primary"]
         supported = (scores["clock_mse"] < thresholds["clock_to_competence_mse_ratio"] * scores["competence_mse"]
@@ -361,6 +384,48 @@ def analyze_rate_aware_clock(config, training, probes, audit) -> dict:
 def rate_aware_checkpoint_path(root, seed, rate, step) -> Path:
     """Canonical path within the rate-aware experiment's separate checkpoint tree."""
     return Path(root) / f"lr_{_rate_label(rate)}" / f"transformer_seed{seed}_fresh_step{step}.pt"
+
+
+def _frozen_artifact_paths() -> list[Path]:
+    root = Path(__file__).resolve().parents[2]
+    return [root / "figures" / f"mess3_competence_time_{name}.png" for name in ("learning", "loso")] + [
+        root / "results" / f"mess3_competence_time_{name}.jsonl" for name in ("training", "probes", "summary")]
+
+
+def _validate_artifact_paths(outputs, *, protected=(), directories=()) -> None:
+    """Reject resolved and existing hardlink aliases before any publication."""
+    outputs = [Path(path) for path in outputs if path is not None]
+    targets = [*outputs, *(Path(path) for path in protected), *_frozen_artifact_paths()]
+    resolved = [(path, path.resolve()) for path in targets]
+    for (left, a), (right, b) in combinations(resolved, 2):
+        if (a == b or a in b.parents or b in a.parents
+                or (left.exists() and right.exists() and left.samefile(right))):
+            raise ValueError(f"artifact paths alias or nest: {left} and {right}")
+    for path in outputs:
+        if path.exists() and not path.is_file():
+            raise ValueError(f"output must be a file: {path}")
+        for parent in path.parents:
+            if parent.exists() and not parent.is_dir():
+                raise ValueError(f"output parent must be a directory: {parent}")
+    for directory in map(Path, directories):
+        if directory.exists() and not directory.is_dir():
+            raise ValueError(f"artifact root must be a directory: {directory}")
+        resolved_directory = directory.resolve()
+        if any(resolved_directory == path or path in resolved_directory.parents for _, path in resolved):
+            raise ValueError("artifact directory aliases a file")
+
+
+def _validate_storage_paths(config, checkpoint_root, outputs, *, protected=(), directories=()) -> None:
+    root = Path(checkpoint_root)
+    if ".." in root.parts:
+        raise ValueError("checkpoint root must not contain parent traversal")
+    checkpoints = [rate_aware_checkpoint_path(root, seed, rate, step)
+                   for seed in config["rate_aware_clock"]["seeds"]
+                   for rate in config["rate_aware_clock"]["learning_rates"]
+                   for step in config["train"]["checkpoint_steps"]]
+    _validate_artifact_paths(outputs, protected=[*protected, *checkpoints,
+                                               root / "rate_aware_clock_attempts.jsonl"],
+                             directories=[root, *directories])
 
 
 def read_rate_aware_jsonl(path) -> list[dict]:
@@ -490,6 +555,7 @@ def preflight_rate_aware_outputs(config, checkpoint_root, *, training_path=None,
     Missing files are permitted. Existing result trajectories must be complete;
     corrupt, mismatched, nonfinite and partial evidence is never overwritten.
     """
+    _validate_storage_paths(config, checkpoint_root, [training_path, probe_path, audit_path, summary_path])
     _storage_selection(config, config["rate_aware_clock"]["seeds"], config["rate_aware_clock"]["learning_rates"])
     result = {name: read_rate_aware_jsonl(path) if path is not None and Path(path).exists() else []
               for name, path in (("training", training_path), ("probe", probe_path),
@@ -685,6 +751,11 @@ def audit_token_isolation(config, seeds) -> list[dict]:
     decides whether the resulting evidence permits a confirmatory verdict.
     """
     seeds, _ = _storage_selection(config, seeds, config["rate_aware_clock"]["learning_rates"])
+    return _reconstruct_token_audit(config, seeds)
+
+
+def _reconstruct_token_audit(config, seeds) -> list[dict]:
+    """Read-only reconstruction at fixed offsets; never searches for disjoint data."""
     mixture = mixture_from_config(config)
     rows = []
     for seed in seeds:

@@ -4,6 +4,8 @@ import copy
 import hashlib
 import importlib
 import json
+import os
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -13,6 +15,29 @@ import torch
 
 
 CONFIG = Path(__file__).resolve().parents[1] / "configs" / "mess3_rate_aware_clock.yaml"
+
+
+def _synthetic_token_batch(count, length, seed):
+    tokens = np.zeros((count, length), dtype=np.int64)
+    tokens[:, 0] = seed
+    tokens[:, 1] = np.arange(count)
+    return SimpleNamespace(tokens=tokens)
+
+
+def _mock_registered_token_sampler(monkeypatch):
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    real = module.sample_from_config
+    def sample(mixture, config, count, length, seed):
+        if config_digest(config) == "59f938bbff48f300":
+            return _synthetic_token_batch(count, length, seed)
+        return real(mixture, config, count, length, seed)
+    monkeypatch.setattr(module, "sample_from_config", sample)
+
+
+@pytest.fixture(autouse=True)
+def synthetic_registered_tokens(monkeypatch):
+    # No registered token data is sampled: hashes use synthetic arrays in memory.
+    _mock_registered_token_sampler(monkeypatch)
 
 
 def _tiny_storage_config():
@@ -56,6 +81,128 @@ def test_training_pairs_initialization_and_records_exact_checkpoint_identity(tmp
         if row["step"] == 0:
             states.append(payload["state_dict"])
     assert all(torch.equal(states[0][key], states[1][key]) for key in states[0])
+
+
+@pytest.mark.parametrize("kind", ["training", "probes"])
+@pytest.mark.parametrize("target", ["checkpoint", "log"])
+@pytest.mark.parametrize("link", ["direct", "symlink", "hardlink"])
+def test_public_storage_rejects_output_alias_before_side_effects(tmp_path, monkeypatch, kind, target, link):
+    config = _tiny_storage_config()
+    root = tmp_path / "checkpoints"
+    protected = (_api("rate_aware_checkpoint_path")(root, 3, .003, 0) if target == "checkpoint"
+                 else root / "rate_aware_clock_attempts.jsonl")
+    output = protected
+    if link != "direct":
+        output = tmp_path / "output.jsonl"
+        if link == "hardlink":
+            protected.parent.mkdir(parents=True)
+            protected.write_bytes(b"protected bytes")
+            os.link(protected, output)
+        else:
+            output.symlink_to(protected)
+    before = {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    monkeypatch.setattr(module, "_produce_trajectory", lambda *a, **k: pytest.fail("producer before alias rejection"))
+    with pytest.raises(ValueError, match="alias"):
+        _api(f"run_rate_aware_{kind}")(config, [3], [.003], root, results_path=output)
+    assert before == {p: p.read_bytes() for p in tmp_path.rglob("*") if p.is_file()}
+
+
+def test_public_storage_rejects_parent_traversal_before_side_effects(tmp_path, monkeypatch):
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    monkeypatch.setattr(module, "_produce_trajectory", lambda *a, **k: pytest.fail("producer before root validation"))
+    with pytest.raises(ValueError, match="checkpoint root"):
+        module.run_rate_aware_training(_tiny_storage_config(), [3], [.003],
+                                       tmp_path / "unused" / ".." / "checkpoints")
+    assert not list(tmp_path.iterdir())
+
+
+@pytest.mark.parametrize("link", ["direct", "symlink", "hardlink"])
+def test_public_preflight_rejects_training_probe_result_alias(tmp_path, link):
+    train = tmp_path / "training.jsonl"
+    train.write_text("")
+    probe = train if link == "direct" else tmp_path / "probes.jsonl"
+    if link == "symlink":
+        probe.symlink_to(train)
+    elif link == "hardlink":
+        os.link(train, probe)
+    with pytest.raises(ValueError, match="alias"):
+        _api("preflight_rate_aware_outputs")(_tiny_storage_config(), tmp_path / "checkpoints",
+                                               training_path=train, probe_path=probe)
+
+
+def test_orphan_checkpoints_require_explicit_recovery_without_deleting_evidence(tmp_path, monkeypatch):
+    config = _tiny_storage_config()
+    root = tmp_path / "checkpoints"
+    runner = _api("run_rate_aware_training")
+    runner(config, [3], [.003], root)  # Deliberately retain checkpoints without a result snapshot.
+    before = {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    monkeypatch.setattr(module, "train_diagnostic", lambda *a, **k: pytest.fail("orphan checkpoint was regenerated"))
+    with pytest.raises(ValueError, match="explicit recovery"):
+        runner(config, [3], [.003], root, results_path=tmp_path / "training.jsonl")
+    assert before == {path: path.read_bytes() for path in root.rglob("*") if path.is_file()}
+    assert not (tmp_path / "training.jsonl").exists()
+
+
+@pytest.mark.parametrize("link", ["symlink", "hardlink"])
+@pytest.mark.parametrize("frozen", ["figures/mess3_competence_time_learning.png",
+                                     "results/mess3_competence_time_training.jsonl"])
+def test_direct_figures_protect_frozen_aliases(tmp_path, monkeypatch, link, frozen):
+    figures = _figure_api()
+    fixture = _synthetic_analysis_grid()
+    target = CONFIG.parents[1] / frozen
+    before = target.read_bytes()
+    destination = tmp_path / "mess3_rate_aware_clock_forecasts.png"
+    if link == "symlink":
+        destination.symlink_to(target)
+    else:
+        os.link(target, destination)
+    monkeypatch.setattr(figures.plt, "subplots", lambda *a, **k: pytest.fail("frozen alias reached plotting"))
+    with pytest.raises(ValueError, match="alias"):
+        figures.generate_rate_aware_clock_figures(*fixture, _analyze(fixture), tmp_path)
+    assert target.read_bytes() == before
+    assert not (tmp_path / "mess3_rate_aware_clock_learning.png").exists()
+
+
+@pytest.mark.parametrize("link", ["symlink", "hardlink"])
+def test_figure_save_atomically_replaces_link_without_following_target(tmp_path, link, monkeypatch):
+    figures = _figure_api()
+    target = tmp_path / "other.png"
+    target.write_bytes(b"untouched")
+    destination = tmp_path / "figure.png"
+    if link == "symlink":
+        destination.symlink_to(target)
+    else:
+        os.link(target, destination)
+    fig, axis = figures.plt.subplots()
+    axis.plot([0, 1], [0, 1])
+    savefig = fig.savefig
+    def checked(path, **kwargs):
+        assert Path(path) != destination, "savefig must only receive a temporary path"
+        assert Path(path).parent == destination.parent
+        savefig(path, **kwargs)
+    monkeypatch.setattr(fig, "savefig", checked)
+    assert figures._save(fig, destination) == destination
+    assert target.read_bytes() == b"untouched"
+    assert destination.read_bytes().startswith(b"\x89PNG")
+    assert not destination.samefile(target)
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["figure.png", "other.png"]
+
+
+def test_failed_figure_save_preserves_existing_file_and_cleans_temporary(tmp_path, monkeypatch):
+    figures = _figure_api()
+    destination = tmp_path / "figure.png"
+    destination.write_bytes(b"old figure")
+    fig, _ = figures.plt.subplots()
+    def fail(path, **kwargs):
+        Path(path).write_bytes(b"partial image")
+        raise OSError("interrupted render")
+    monkeypatch.setattr(fig, "savefig", fail)
+    with pytest.raises(OSError, match="interrupted"):
+        figures._save(fig, destination)
+    assert destination.read_bytes() == b"old figure"
+    assert list(tmp_path.iterdir()) == [destination]
 
 
 @pytest.mark.parametrize("kind", ["training", "probe"])
@@ -527,9 +674,10 @@ def _synthetic_analysis_grid(kind="clock"):
         audit.append({
             "record_type": "rate_aware_clock_audit", "seed": seed,
             "base_config_sha256": config_digest(config),
-            "datasets": {name: {"sha256": hashlib.sha256(f"{seed}:{name}".encode()).hexdigest(),
-                                "n_rows": count, "n_unique_rows": count}
-                         for name, count in (("evaluation", 256), ("probe_fit", 1024), ("probe_test", 512))},
+            "datasets": {name: _api("_token_array_hashes")(
+                _synthetic_token_batch(count, 64, seed + offset).tokens)[0]
+                for name, count, offset in (("evaluation", 256, 202), ("probe_fit", 1024, 404),
+                                             ("probe_test", 512, 505))},
             "intersections": {"evaluation__probe_fit": 0, "evaluation__probe_test": 0,
                               "probe_fit__probe_test": 0},
         })
@@ -547,6 +695,8 @@ def _synthetic_analysis_grid(kind="clock"):
                     "rate_config_sha256": config_digest(rate_config),
                     "config_sha256": config_digest(rate_config),
                     "sampler": "vectorized", "condition": "fresh",
+                    "parameters_finite": True,
+                    "parameter_sha256": hashlib.sha256(f"{seed}:{step}".encode()).hexdigest(),
                     "checkpoint_path": f"synthetic/lr_{str(rate).replace('.', 'p')}/transformer_seed{seed}_fresh_step{step}.pt",
                 }
                 training.append({
@@ -577,6 +727,89 @@ def _figure_api():
     module_name = "nonergodic_memory.mess3_rate_aware_clock_figures"
     assert importlib.util.find_spec(module_name) is not None, "rate-aware figures are missing"
     return importlib.import_module(module_name)
+
+
+@pytest.mark.parametrize("change", ["missing_hash", "missing_finite", "false", "malformed", "mismatch"])
+@pytest.mark.parametrize("consumer", ["analysis", "figures"])
+def test_probe_parameter_binding_is_required(tmp_path, monkeypatch, change, consumer):
+    fixture = _synthetic_analysis_grid()
+    probe = fixture[2][0]
+    if change == "missing_hash":
+        probe.pop("parameter_sha256")
+    elif change == "missing_finite":
+        probe.pop("parameters_finite")
+    elif change == "false":
+        probe["parameters_finite"] = False
+    else:
+        probe["parameter_sha256"] = "bad" if change == "malformed" else "a" * 64
+    summary = _analyze(fixture)
+    if consumer == "analysis":
+        assert summary["verdict"] == "inconclusive"
+        assert "invalid_grid" in summary["validity_failures"]
+    else:
+        figures = _figure_api()
+        monkeypatch.setattr(figures.plt, "subplots", lambda *a, **k: pytest.fail("unbound probe reached plotting"))
+        with pytest.raises(ValueError, match="parameter"):
+            figures.generate_rate_aware_clock_figures(*fixture, summary, tmp_path / "figures")
+        assert not (tmp_path / "figures").exists()
+
+
+@pytest.mark.parametrize("change", ["hash", "relabel", "unique", "intersection"])
+@pytest.mark.parametrize("consumer", ["analysis", "figures"])
+def test_cached_audit_must_match_deterministic_tokens(tmp_path, monkeypatch, change, consumer):
+    fixture = _synthetic_analysis_grid()
+    audit = fixture[3]
+    if change == "hash":
+        audit[0]["datasets"]["evaluation"]["sha256"] = "a" * 64
+    elif change == "relabel":
+        audit[0]["datasets"], audit[1]["datasets"] = audit[1]["datasets"], audit[0]["datasets"]
+    elif change == "unique":
+        audit[0]["datasets"]["evaluation"]["n_unique_rows"] -= 1
+    else:
+        audit[0]["intersections"]["evaluation__probe_fit"] = 1
+    summary = _analyze(fixture)
+    if consumer == "analysis":
+        assert summary["verdict"] == "inconclusive"
+        assert "token_isolation" in summary["validity_failures"]
+        assert "deterministic" in summary["audit_error"]
+    else:
+        figures = _figure_api()
+        monkeypatch.setattr(figures.plt, "subplots", lambda *a, **k: pytest.fail("tampered audit reached plotting"))
+        with pytest.raises(ValueError, match="deterministic"):
+            figures.generate_rate_aware_clock_figures(*fixture, summary, tmp_path / "figures")
+
+
+@pytest.mark.parametrize("value", ["0", False])
+@pytest.mark.parametrize("kind", ["probe", "audit"])
+def test_overlap_counts_require_integers(value, kind):
+    fixture = _synthetic_analysis_grid()
+    if kind == "probe":
+        fixture[2][0]["probe_sequence_overlap"] = value
+    else:
+        fixture[3][0]["intersections"]["evaluation__probe_fit"] = value
+    summary = _analyze(fixture)
+    assert summary["verdict"] == "inconclusive"
+
+
+def test_real_deterministic_token_overlap_is_scientific_failure(tmp_path, monkeypatch):
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    fixture = _synthetic_analysis_grid()
+    calls = []
+    def overlapping(mixture, config, count, length, seed):
+        calls.append((count, length, seed))
+        return _synthetic_token_batch(count, length, 1)
+    monkeypatch.setattr(module, "sample_from_config", overlapping)
+    fixture = (*fixture[:3], module.audit_token_isolation(fixture[0], range(40, 48)))
+    summary = _analyze(fixture)
+    assert summary["verdict"] == "inconclusive"
+    assert summary["validity_failures"] == ["token_isolation"]
+    paths = _figure_api().generate_rate_aware_clock_figures(*fixture, summary, tmp_path)
+    assert len(paths) == 2
+    # Every reconstruction repeats exactly the registered offsets, with no search/retry.
+    expected = [(count, 64, seed + offset) for seed in range(40, 48)
+                for count, offset in ((256, 202), (1024, 404), (512, 505))]
+    assert len(calls) % len(expected) == 0
+    assert calls == expected * (len(calls) // len(expected))
 
 
 def test_rate_aware_figures_filenames_pixels_and_registered_content(tmp_path, monkeypatch):
@@ -779,6 +1012,9 @@ def test_analysis_validity_failures_override_favorable_forecasts(change, failure
         training[-1]["parameters_finite"] = False
     elif change == "pairing":
         training[8]["parameter_sha256"] = "a" * 64
+        for row in probes:
+            if (row["seed"], row["learning_rate"], row["step"]) == (40, .006, 0):
+                row["parameter_sha256"] = "a" * 64
     elif change == "digest":
         probes[0]["rate_config_sha256"] = "wrong"
     elif change == "probe_path":
@@ -930,6 +1166,43 @@ def test_analysis_extreme_finite_competence_arithmetic_is_json_safe():
     assert difference["max_competence_difference"] is None
     assert difference["reason"] == "nonfinite_competence_difference"
     assert 40 not in summary["rate_dissociation"]["passing_seeds"]
+
+
+@pytest.mark.parametrize("overflow", ["clock", "competence"])
+def test_analysis_finite_mses_with_overflowing_ratio_are_json_safe(monkeypatch, overflow):
+    fixture = _synthetic_analysis_grid()
+    module = importlib.import_module("nonergodic_memory.mess3_rate_aware_clock")
+    def extreme_forecast(value, spec):
+        name = "clock" if "transform" in spec else "competence"
+        return 1e100 if name == overflow else 1e-100
+    monkeypatch.setattr(module, "forecast_geometry", extreme_forecast)
+    for row in fixture[2]:
+        row["component_posterior_r2"] = 0.
+    summary = _analyze(fixture)
+    primary = summary["primary"]
+    assert np.isfinite(primary["clock_mse"]) and np.isfinite(primary["competence_mse"])
+    assert primary[f"{overflow}_mse"] == pytest.approx(1e200)
+    assert summary["verdict"] == "inconclusive"
+    assert "nonfinite_analysis" in summary["validity_failures"]
+    ratio = "clock_to_competence" if overflow == "clock" else "competence_to_clock"
+    assert primary[f"{ratio}_mse_ratio"] is None
+    reason = "ratio_reason" if overflow == "clock" else "inverse_ratio_reason"
+    assert primary[reason] == f"nonfinite_{ratio}_mse_ratio"
+    json.dumps(summary, allow_nan=False)
+
+
+@pytest.mark.parametrize("qualifying", [5, 6])
+def test_rate_dissociation_exact_difference_and_seed_count_boundaries(qualifying):
+    fixture = _synthetic_analysis_grid()
+    for row in fixture[1]:
+        row["competence"] = (0.1 if row["seed"] < 40 + qualifying else np.nextafter(.1, 0.)) \
+            if row["learning_rate"] == .006 else 0.
+    summary = _analyze(fixture)
+    dissociation = summary["rate_dissociation"]
+    assert dissociation["passing_seeds"] == list(range(40, 40 + qualifying))
+    assert all(row["max_competence_difference"] == .10 for row in dissociation["per_seed"][:qualifying])
+    assert dissociation["valid"] is (qualifying == 6)
+    assert ("rate_dissociation" in summary["validity_failures"]) is (qualifying == 5)
 
 
 def test_rate_aware_clock_config_matches_preregistered_forecasts_and_grid() -> None:

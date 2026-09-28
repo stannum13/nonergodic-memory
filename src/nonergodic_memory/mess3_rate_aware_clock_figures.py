@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import copy
 import json
+import os
+import tempfile
 from pathlib import Path
 
 import matplotlib
@@ -14,14 +15,25 @@ import numpy as np
 from matplotlib.lines import Line2D
 
 from .mess3_rate_aware_clock import (
-    _integer, _validate_audit, _validate_grid, analyze_rate_aware_clock, forecast_geometry,
+    _validate_artifact_paths, _validate_audit, _validate_grid, analyze_rate_aware_clock, forecast_geometry,
 )
 
 
 def _save(fig: plt.Figure, path: Path) -> Path:
-    fig.tight_layout(rect=(0, .07, 1, .90))
-    fig.savefig(path, dpi=180, bbox_inches="tight")
-    plt.close(fig)
+    temporary = None
+    try:
+        _validate_artifact_paths([path])
+        fig.tight_layout(rect=(0, .07, 1, .90))
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix=".rate-aware-", suffix=".png", delete=False) as handle:
+            temporary = Path(handle.name)
+        fig.savefig(temporary, dpi=180, bbox_inches="tight")
+        with temporary.open("rb") as handle:
+            os.fsync(handle.fileno())
+        temporary.replace(path)
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+        plt.close(fig)
     return path
 
 
@@ -104,17 +116,12 @@ def _forecast_figure(config, rows, summary, destination):
 
 def generate_rate_aware_clock_figures(config, training, probes, audit, summary, output_dir) -> list[Path]:
     """Plot only a complete finite grid and its exactly recomputed analysis."""
+    destination = Path(output_dir)
+    _validate_artifact_paths([destination / f"mess3_rate_aware_clock_{name}.png"
+                              for name in ("learning", "forecasts")], directories=[destination])
     _validate_grid(config, training, probes)
     # Preserve overlap as a scientific failure while rejecting corrupted audit identity.
-    audit_identity = copy.deepcopy(audit)
-    for row in audit_identity:
-        if not isinstance(row.get("intersections"), dict):
-            raise ValueError("audit intersections must be a mapping")
-        for key, value in row["intersections"].items():
-            if _integer(value) < 0:
-                raise ValueError("audit intersections must be nonnegative")
-            row["intersections"][key] = 0
-    _validate_audit(config, audit_identity)
+    _validate_audit(config, audit, require_isolation=False)
     expected = analyze_rate_aware_clock(config, training, probes, audit)
     integrity_failures = set(expected["validity_failures"]) & {"forecast_provenance", "invalid_grid", "initialization_pairing"}
     if integrity_failures:
@@ -130,6 +137,5 @@ def generate_rate_aware_clock_figures(config, training, probes, audit, summary, 
     if len(config["rate_aware_clock"]["seeds"]) > 8 or len(config["train"]["checkpoint_steps"]) < 2:
         raise ValueError("figures require at most eight seeds and a post-initialization checkpoint")
     rows = _primary_rows(config, training, probes)
-    destination = Path(output_dir)
     destination.mkdir(parents=True, exist_ok=True)
     return [_learning_figure(config, rows, destination), _forecast_figure(config, rows, summary, destination)]

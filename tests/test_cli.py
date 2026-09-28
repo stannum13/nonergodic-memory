@@ -1,4 +1,6 @@
 import json
+import copy
+from types import SimpleNamespace
 import os
 import subprocess
 import sys
@@ -137,6 +139,224 @@ def test_rate_aware_cli_audit_is_atomic_full_seed_snapshot(tmp_path, monkeypatch
     monkeypatch.setattr(cli, "audit_token_isolation", lambda *a, **k: pytest.fail("audit snapshot was regenerated"))
     cli.main()
     assert (tmp_path / "audit.jsonl").read_bytes() == previous
+
+
+@pytest.mark.parametrize("change", ["hash", "relabel"])
+def test_rate_aware_cli_rejects_tampered_cached_audit(tmp_path, monkeypatch, change):
+    import mess3_rate_aware_clock as cli
+    args = _rate_aware_cli_args(tmp_path)
+    monkeypatch.setattr(sys, "argv", ["rate-aware", *args, "--mode", "audit"])
+    cli.main()
+    path = tmp_path / "audit.jsonl"
+    rows = [json.loads(line) for line in path.read_text().splitlines()]
+    if change == "hash":
+        rows[0]["datasets"]["evaluation"]["sha256"] = "a" * 64
+    else:
+        rows[0]["datasets"], rows[1]["datasets"] = rows[1]["datasets"], rows[0]["datasets"]
+    path.write_text("".join(json.dumps(row) + "\n" for row in rows))
+    before = path.read_bytes()
+    monkeypatch.setattr(cli, "audit_token_isolation", lambda *a, **k: pytest.fail("cached audit was regenerated"))
+    with pytest.raises(SystemExit, match="deterministic"):
+        cli.main()
+    assert path.read_bytes() == before
+
+
+@pytest.mark.parametrize("link", ["symlink", "hardlink"])
+@pytest.mark.parametrize("frozen", ["figures/mess3_competence_time_learning.png",
+                                     "results/mess3_competence_time_probes.jsonl"])
+def test_rate_aware_cli_protects_frozen_figure_targets(tmp_path, monkeypatch, link, frozen):
+    import mess3_rate_aware_clock as cli
+    args = _rate_aware_cli_args(tmp_path)
+    output = tmp_path / "figures"
+    output.mkdir()
+    destination = output / "mess3_rate_aware_clock_learning.png"
+    target = ROOT / frozen
+    before = target.read_bytes()
+    if link == "symlink":
+        destination.symlink_to(target)
+    else:
+        os.link(target, destination)
+    monkeypatch.setattr(cli, "audit_token_isolation", lambda *a, **k: pytest.fail("alias passed preflight"))
+    monkeypatch.setattr(sys, "argv", ["rate-aware", *args, "--mode", "audit"])
+    with pytest.raises(SystemExit, match="alias"):
+        cli.main()
+    assert target.read_bytes() == before
+
+
+def _registered_cli_memory_evidence(tmp_path, monkeypatch):
+    """Exercise the locked CLI with synthetic rows and virtual checkpoint identities.
+
+    Only the derived summary is written; no confirmation data/checkpoint is created.
+    """
+    import mess3_rate_aware_clock as cli
+    from test_mess3_rate_aware_clock import _mock_registered_token_sampler, _synthetic_analysis_grid
+    _mock_registered_token_sampler(monkeypatch)
+    config, training, probes, audit = _synthetic_analysis_grid()
+    args = SimpleNamespace(config=str(ROOT / "configs/mess3_rate_aware_clock.yaml"), mode="all",
+        seeds=None, learning_rates=None, checkpoint_dir=str(tmp_path / "checkpoints"),
+        training_results=str(tmp_path / "training.jsonl"), probe_results=str(tmp_path / "probes.jsonl"),
+        audit_results=str(tmp_path / "audit.jsonl"), summary_results=str(tmp_path / "summary.jsonl"),
+        output_dir=str(tmp_path / "figures"))
+    identities = {}
+    for row in training + probes:
+        cell = row["seed"], row["learning_rate"], row["step"]
+        row["checkpoint_path"] = str(cli.rate_aware_checkpoint_path(args.checkpoint_dir, *cell))
+        identities[cell] = {"parameter_sha256": row["parameter_sha256"], "parameters_finite": True}
+    evidence = {Path(args.training_results): training, Path(args.probe_results): probes, Path(args.audit_results): audit}
+    virtual_paths = {*evidence, *(cli.rate_aware_checkpoint_path(args.checkpoint_dir, *cell) for cell in identities)}
+    def virtual(path):
+        return Path(path) in virtual_paths or Path(path) in evidence
+    exists, is_file, samefile = Path.exists, Path.is_file, Path.samefile
+    monkeypatch.setattr(Path, "exists", lambda path: virtual(path) or exists(path))
+    monkeypatch.setattr(Path, "is_file", lambda path: virtual(path) or is_file(path))
+    monkeypatch.setattr(Path, "samefile", lambda path, other: path.resolve() == Path(other).resolve()
+                        if virtual(path) or virtual(other) else samefile(path, other))
+    read = cli.read_rate_aware_jsonl
+    monkeypatch.setattr(cli, "read_rate_aware_jsonl", lambda path: copy.deepcopy(evidence[Path(path)])
+                        if Path(path) in evidence else read(path))
+    monkeypatch.setattr(cli, "_checked_checkpoint", lambda config, root, seed, rate, step: identities[seed, rate, step])
+    monkeypatch.setattr(cli, "parse_args", lambda: args)
+    return cli, args, (config, training, probes, audit), evidence, identities
+
+
+@pytest.mark.parametrize("mode", ["analyze", "all"])
+@pytest.mark.parametrize("change,failure", [
+    ("nonfinite", "invalid_grid"), ("missing", "invalid_grid"), ("duplicate", "invalid_grid"),
+    ("shuffled", "shuffled_labels"), ("rate", "rate_dissociation"),
+    ("support", "forecast_support"), ("token_overlap", "token_isolation"),
+    ("probe_overlap", "invalid_grid"), ("missing_without_audit", "invalid_grid"),
+])
+def test_registered_cli_publishes_scientific_inconclusive_without_producers(tmp_path, monkeypatch, mode, change, failure):
+    cli, args, fixture, evidence, _ = _registered_cli_memory_evidence(tmp_path, monkeypatch)
+    config, training, probes, audit = fixture
+    args.mode = mode
+    if change == "nonfinite":
+        training[1]["competence"] = float("nan")
+    elif change in ("missing", "missing_without_audit"):
+        probes.pop()
+        if change == "missing_without_audit":
+            # Absent snapshot, not a malformed empty snapshot.
+            evidence.pop(Path(args.audit_results))
+            original_exists = Path.exists
+            monkeypatch.setattr(Path, "exists", lambda path: False if path == Path(args.audit_results) else original_exists(path))
+    elif change == "duplicate":
+        probes.append(copy.deepcopy(probes[-1]))
+    elif change == "shuffled":
+        next(row for row in probes if row["step"] > 0 and row["site"] == "block_2"
+             and row["control"] == "shuffled_labels")["component_posterior_r2"] = .03
+    elif change == "rate":
+        for row in training:
+            row["competence"] = .3
+    elif change == "support":
+        training[1]["competence"] = .95
+    elif change == "probe_overlap":
+        probes[0]["probe_sequence_overlap"] = 1
+    else:
+        import nonergodic_memory.mess3_rate_aware_clock as core
+        from test_mess3_rate_aware_clock import _synthetic_token_batch
+        monkeypatch.setattr(core, "sample_from_config", lambda mixture, config, count, length, seed:
+                            _synthetic_token_batch(count, length, 1))
+        audit[:] = core.audit_token_isolation(config, config["rate_aware_clock"]["seeds"])
+    for name in ("run_rate_aware_training", "run_rate_aware_probes", "audit_token_isolation"):
+        monkeypatch.setattr(cli, name, lambda *a, **k: pytest.fail("scientific evidence triggered a producer"))
+    cli.main()
+    summary = json.loads(Path(args.summary_results).read_text())
+    assert summary["verdict"] == "inconclusive"
+    assert failure in summary["validity_failures"]
+    json.dumps(summary, allow_nan=False)
+    assert not (tmp_path / "checkpoints").exists()
+    assert {p.name for p in tmp_path.glob("*.jsonl")} == {"summary.jsonl"}
+
+
+@pytest.mark.parametrize("change", ["shuffled", "support", "token_overlap"])
+def test_registered_cli_invalid_whole_subset_cannot_resume(tmp_path, monkeypatch, change):
+    cli, args, fixture, _, _ = _registered_cli_memory_evidence(tmp_path, monkeypatch)
+    config, training, probes, audit = fixture
+    training[:] = [row for row in training if row["seed"] == 40]
+    probes[:] = [row for row in probes if row["seed"] == 40]
+    if change == "shuffled":
+        next(row for row in probes if row["step"] > 0 and row["site"] == "block_2"
+             and row["control"] == "shuffled_labels")["component_posterior_r2"] = .03
+    elif change == "support":
+        training[1]["competence"] = .95
+    else:
+        import nonergodic_memory.mess3_rate_aware_clock as core
+        from test_mess3_rate_aware_clock import _synthetic_token_batch
+        monkeypatch.setattr(core, "sample_from_config", lambda mixture, config, count, length, seed:
+                            _synthetic_token_batch(count, length, 1))
+        audit[:] = core.audit_token_isolation(config, config["rate_aware_clock"]["seeds"])
+    monkeypatch.setattr(cli, "preflight_rate_aware_outputs", lambda *a, **k: pytest.fail("invalid subset offered for resume"))
+    for name in ("run_rate_aware_training", "run_rate_aware_probes", "audit_token_isolation"):
+        monkeypatch.setattr(cli, name, lambda *a, **k: pytest.fail("invalid subset triggered producer"))
+    cli.main()
+    assert json.loads(Path(args.summary_results).read_text())["verdict"] == "inconclusive"
+
+
+@pytest.mark.parametrize("mode", ["analyze", "all"])
+def test_registered_cli_terminal_scientific_attempt_publishes_inconclusive(tmp_path, monkeypatch, mode):
+    cli, args, fixture, evidence, _ = _registered_cli_memory_evidence(tmp_path, monkeypatch)
+    args.mode = mode
+    config, training, probes, _ = fixture
+    training[:] = [row for row in training if row["seed"] == 40]
+    probes[:] = [row for row in probes if row["seed"] == 40]
+    log = Path(args.checkpoint_dir) / "rate_aware_clock_attempts.jsonl"
+    evidence[log] = [{"record_type": "rate_aware_clock_attempt", "base_config_sha256": config_digest(config),
+                      "kind": "training", "status": "failed", "seed": 41, "learning_rate": .003,
+                      "scientific_failure": True, "error": "nonfinite optimization"}]
+    exists = Path.exists
+    monkeypatch.setattr(Path, "exists", lambda path: path == log or exists(path))
+    monkeypatch.setattr(cli, "preflight_rate_aware_outputs", lambda *a, **k: pytest.fail("terminal science failure offered for resume"))
+    for name in ("run_rate_aware_training", "run_rate_aware_probes", "audit_token_isolation"):
+        monkeypatch.setattr(cli, name, lambda *a, **k: pytest.fail("terminal failure retried"))
+    cli.main()
+    summary = json.loads(Path(args.summary_results).read_text())
+    assert summary["verdict"] == "inconclusive"
+    assert "invalid_grid" in summary["validity_failures"]
+
+
+@pytest.mark.parametrize("change", ["digest", "parameter", "audit_hash", "rate_type", "metric_type"])
+def test_registered_cli_integrity_failure_is_hard_error(tmp_path, monkeypatch, change):
+    cli, args, fixture, _, _ = _registered_cli_memory_evidence(tmp_path, monkeypatch)
+    if change == "digest":
+        fixture[1][0]["base_config_sha256"] = "bad"
+    elif change == "parameter":
+        fixture[1][1]["parameter_sha256"] = "a" * 64
+        for row in fixture[2]:
+            if (row["seed"], row["learning_rate"], row["step"]) == (40, .003, 384):
+                row["parameter_sha256"] = "a" * 64
+    elif change == "audit_hash":
+        fixture[3][0]["datasets"]["evaluation"]["sha256"] = "a" * 64
+    else:
+        fixture[1][0]["learning_rate" if change == "rate_type" else "competence"] = "0.3"
+    for name in ("run_rate_aware_training", "run_rate_aware_probes", "audit_token_isolation"):
+        monkeypatch.setattr(cli, name, lambda *a, **k: pytest.fail("corruption triggered producer"))
+    with pytest.raises(SystemExit):
+        cli.main()
+    assert not Path(args.summary_results).exists()
+
+
+def test_registered_cli_resumes_only_whole_compatible_trajectories(tmp_path, monkeypatch):
+    cli, args, fixture, _, _ = _registered_cli_memory_evidence(tmp_path, monkeypatch)
+    _, training, probes, _ = fixture
+    complete_training, complete_probes = copy.deepcopy(training), copy.deepcopy(probes)
+    training[:] = [row for row in training if row["seed"] == 40]
+    probes[:] = [row for row in probes if row["seed"] == 40]
+    calls = []
+    # Real resume safety is separately exercised using tiny production trajectories;
+    # here mock the storage boundary to avoid any confirmation checkpoints or data.
+    monkeypatch.setattr(cli, "preflight_rate_aware_outputs", lambda *a, **k: None)
+    def train(*a, **k):
+        calls.append("training")
+        training[:] = complete_training
+    def probe(*a, **k):
+        calls.append("probe")
+        probes[:] = complete_probes
+    monkeypatch.setattr(cli, "run_rate_aware_training", train)
+    monkeypatch.setattr(cli, "run_rate_aware_probes", probe)
+    monkeypatch.setattr(cli, "audit_token_isolation", lambda *a, **k: pytest.fail("existing audit regenerated"))
+    cli.main()
+    assert calls == ["training", "probe"]
+    assert json.loads(Path(args.summary_results).read_text())["verdict"] == "supported"
 
 
 @pytest.mark.parametrize("mode", ["all", "analyze", "figures", "audit"])
