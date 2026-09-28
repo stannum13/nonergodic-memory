@@ -331,6 +331,57 @@ def test_analysis_predeclared_thresholds_cannot_be_changed():
     assert "invalid_configuration" in summary["validity_failures"]
 
 
+@pytest.mark.parametrize("row_type", ["training", "probe"])
+@pytest.mark.parametrize("rate", ["0.003", True, 0.003 + 0j, None])
+def test_analysis_malformed_rate_types_return_inconclusive(row_type, rate):
+    fixture = _synthetic_analysis_grid()
+    rows = fixture[1] if row_type == "training" else fixture[2]
+    row = next(row for row in rows if row["step"] > 0 and row["learning_rate"] == .003
+               and (row_type == "training" or (row["site"] == "block_2" and row["control"] == "none")))
+    row["learning_rate"] = rate
+    summary = _analyze(fixture)
+    assert summary["verdict"] == "inconclusive"
+    assert "invalid_grid" in summary["validity_failures"]
+    json.dumps(summary, allow_nan=False)
+
+
+@pytest.mark.parametrize("field", ["datasets", "intersections"])
+def test_analysis_audit_collections_must_be_mappings(field):
+    fixture = _synthetic_analysis_grid()
+    fixture[3][0][field] = list(fixture[3][0][field])
+    summary = _analyze(fixture)
+    assert summary["verdict"] == "inconclusive"
+    assert "token_isolation" in summary["validity_failures"]
+    assert "mapping" in summary["audit_error"]
+    json.dumps(summary, allow_nan=False)
+
+
+@pytest.mark.parametrize("dataset", ["evaluation", "probe_fit", "probe_test"])
+def test_analysis_nonempty_audit_dataset_requires_positive_unique_count(dataset):
+    fixture = _synthetic_analysis_grid()
+    fixture[3][0]["datasets"][dataset]["n_unique_rows"] = 0
+    summary = _analyze(fixture)
+    assert summary["verdict"] == "inconclusive"
+    assert "token_isolation" in summary["validity_failures"]
+    json.dumps(summary, allow_nan=False)
+
+
+def test_analysis_extreme_finite_competence_arithmetic_is_json_safe():
+    fixture = _synthetic_analysis_grid()
+    for row in fixture[1]:
+        if row["seed"] == 40 and row["step"] == 384:
+            row["competence"] = -1e308 if row["learning_rate"] == .003 else 1e308
+    summary = _analyze(fixture)
+    assert summary["verdict"] == "inconclusive"
+    assert "forecast_support" in summary["validity_failures"]
+    assert "nonfinite_analysis" in summary["validity_failures"]
+    json.dumps(summary, allow_nan=False)
+    difference = next(row for row in summary["rate_dissociation"]["per_seed"] if row["seed"] == 40)
+    assert difference["max_competence_difference"] is None
+    assert difference["reason"] == "nonfinite_competence_difference"
+    assert 40 not in summary["rate_dissociation"]["passing_seeds"]
+
+
 def test_rate_aware_clock_config_matches_preregistered_forecasts_and_grid() -> None:
     config = load_config(CONFIG)
 

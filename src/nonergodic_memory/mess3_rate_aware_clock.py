@@ -7,6 +7,7 @@ import json
 import copy
 import re
 from collections import Counter
+from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
@@ -146,6 +147,9 @@ def _validate_grid(config: dict, training: list[dict], probes: list[dict]) -> No
         for row in rows:
             if not isinstance(row, dict):
                 raise ValueError("raw rows must be objects")
+            rate = row["learning_rate"]
+            if isinstance(rate, bool) or not isinstance(rate, (int, float)) or not np.isfinite(rate):
+                raise ValueError("learning rate must be a finite real number")
             cell = (_integer(row["seed"]), float(row["learning_rate"]), _integer(row["step"]))
             seed, rate, step = cell
             if cell not in expected:
@@ -195,12 +199,14 @@ def _validate_audit(config: dict, audit: list[dict]) -> None:
         seeds.append(_integer(row["seed"]))
         if row.get("record_type") != "rate_aware_clock_audit" or row.get("base_config_sha256") != config_digest(config):
             raise ValueError("audit identity mismatch")
+        if not isinstance(row["datasets"], Mapping) or not isinstance(row["intersections"], Mapping):
+            raise ValueError("audit datasets and intersections must be mappings")
         if set(row["datasets"]) != set(expected_counts) or set(row["intersections"]) != pairs:
             raise ValueError("incomplete token audit")
         for name, count in expected_counts.items():
             dataset = row["datasets"][name]
             if (not _is_sha256(dataset["sha256"]) or _integer(dataset["n_rows"]) != count
-                    or not 0 <= _integer(dataset["n_unique_rows"]) <= count):
+                    or not 1 <= _integer(dataset["n_unique_rows"]) <= count):
                 raise ValueError("invalid token dataset hash or count")
         if any(_integer(value) != 0 for value in row["intersections"].values()):
             raise ValueError("token arrays overlap")
@@ -295,11 +301,23 @@ def analyze_rate_aware_clock(config, training, probes, audit) -> dict:
     result["max_abs_shuffled_component_r2"] = max_shuffled
     if max_shuffled > thresholds["max_shuffled_component_posterior_r2"]:
         failures.append("shuffled_labels")
-    differences = [{"seed": seed, "max_competence_difference": max(
-        abs(cells[seed, rates[0], step]["competence"] - cells[seed, rates[1], step]["competence"])
-        for step in steps)} for seed in seeds]
+    differences = []
+    for seed in seeds:
+        difference = max(
+            abs(float(cells[seed, rates[0], step]["competence"])
+                - float(cells[seed, rates[1], step]["competence"]))
+            for step in steps
+        )
+        if np.isfinite(difference):
+            differences.append({"seed": seed, "max_competence_difference": difference})
+        else:
+            differences.append({"seed": seed, "max_competence_difference": None,
+                                "reason": "nonfinite_competence_difference"})
+            if "nonfinite_analysis" not in failures:
+                failures.append("nonfinite_analysis")
     passing = [row["seed"] for row in differences
-               if row["max_competence_difference"] >= thresholds["minimum_rate_competence_difference"]]
+               if row["max_competence_difference"] is not None
+               and row["max_competence_difference"] >= thresholds["minimum_rate_competence_difference"]]
     result["rate_dissociation"] = {
         "per_seed": differences, "passing_seeds": passing,
         "valid": len(passing) >= thresholds["minimum_rate_dissociation_seeds"],
@@ -320,7 +338,8 @@ def analyze_rate_aware_clock(config, training, probes, audit) -> dict:
     try:
         result["primary"] = _score_forecasts(config, cells, primary)
     except (ValueError, OverflowError) as error:
-        failures.append("nonfinite_analysis")
+        if "nonfinite_analysis" not in failures:
+            failures.append("nonfinite_analysis")
         result["analysis_error"] = str(error)
         return result
     if not failures:
